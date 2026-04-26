@@ -54,12 +54,12 @@
     <!-- Robot Params -->
     <div class="group-box">
       <h3>Robot Parameters</h3>
-      <div class="control-row"><label>lp:</label>   <span id="robot_lp">0</span></div>
-      <div class="control-row"><label>l1:</label>   <span id="robot_l1">0</span></div>
-      <div class="control-row"><label>l2:</label>   <span id="robot_l2">0</span></div>
-      <div class="control-row"><label>lb:</label>   <span id="robot_lb">0</span></div>
-      <div class="control-row"><label>minh:</label> <span id="robot_minh">0</span></div>
-      <div class="control-row"><label>maxh:</label> <span id="robot_maxh">0</span></div>
+      <div class="control-row"><label>lp:</label>   <span id="robot_lp">{{ rob.lp }}</span></div>
+      <div class="control-row"><label>l1:</label>   <span id="robot_l1">{{ rob.l1 }}</span></div>
+      <div class="control-row"><label>l2:</label>   <span id="robot_l2">{{ rob.l2 }}</span></div>
+      <div class="control-row"><label>lb:</label>   <span id="robot_lb">{{ rob.lb }}</span></div>
+      <div class="control-row"><label>minh:</label> <span id="robot_minh">{{ (100 * rob.minh)|int / 100 }}</span></div>
+      <div class="control-row"><label>maxh:</label> <span id="robot_maxh">{{ (100 * rob.maxh)|int / 100 }}</span></div>
     </div>
 
     <!-- Input Sliders -->
@@ -69,22 +69,60 @@
       <div class="control-row">
         <label>θ:</label>
         <!-- slider 0..2000 => 0..20.00 degrees -->
-        <input type="range" id="slider_theta" min="0" max="2000" step="1">
-        <input type="number" id="spin_theta" step="0.01">
+        <input 
+          type="range" 
+          id="slider_theta" 
+          min="0" 
+          max="2000" 
+          step="1"
+          value="{{ (rob.theta_o * 100)|int }}"
+          onchange="set_theta('slider', this.value)">
+        <input 
+          type="number" 
+          id="spin_theta" 
+          step="0.01" 
+          value="{{ (rob.theta_o * 100)|int / 100}}"
+          onchange="set_theta('spin', this.value * 100)">
       </div>
       <!-- Phi -->
       <div class="control-row">
         <label>φ:</label>
         <!-- slider 0..36000 => 0..360.00 degrees -->
-        <input type="range" id="slider_phi" min="0" max="36000" step="1">
-        <input type="number" id="spin_phi" step="0.01">
+        <input 
+          type="range" 
+          id="slider_phi" 
+          min="0" 
+          max="36000" 
+          step="1"
+          value="{{ (rob.phi_o * 100)|int }}"
+          onchange="set_phi('slider', this.value)">
+        <input 
+          type="number" 
+          id="spin_phi" 
+          step="0.01" 
+          value="{{ (rob.phi_o * 100)|int / 100}}" 
+          onchange="set_phi('spin', this.value * 100)">
       </div>
       <!-- h -->
       <div class="control-row">
         <label>h:</label>
         <!-- slider range is dynamic from server, but start with a wide range -->
-        <input type="range" id="slider_h" min="0" max="20000" step="1">
-        <input type="number" id="spin_h" step="0.01">
+        <input 
+          type="range" 
+          id="slider_h" 
+          min="{{ (rob.minh * 100)|int }}" 
+          max="{{ (rob.maxh * 100)|int }}" 
+          step="1"
+          value="{{ (rob.h_o * 100)|int }}"
+          onchange="set_h('slider', this.value)">
+        <input 
+          type="number" 
+          id="spin_h" 
+          min="{{ (rob.minh * 100)|int / 100 }}" 
+          max="{{ (rob.maxh * 100)|int / 100 }}" 
+          step="0.01"
+          value="{{ (rob.h_o * 100)|int / 100}}"
+          onchange="set_h('spin', this.value * 100)">
       </div>
       <!-- Buttons -->
       <div class="control-row">
@@ -102,31 +140,31 @@
       <h3>Output</h3>
       <div class="control-row">
         <label>α:</label>
-        <span id="label_alpha">0.00</span>
+        <span id="label_alpha">{{ rob.alpha }}</span>
       </div>
       <div class="control-row">
         <label>β:</label>
-        <span id="label_beta">0.00</span>
+        <span id="label_beta">{{ rob.beta }}</span>
       </div>
       <div class="control-row">
         <label>γ:</label>
-        <span id="label_gamma">0.00</span>
+        <span id="label_gamma">{{ rob.gamma }}</span>
       </div>
       <div class="control-row">
         <label>h:</label>
-        <span id="label_h">0.00</span>
+        <span id="label_h">{{ rob.h_o }}</span>
       </div>
       <div class="control-row">
         <label>θ₁:</label>
-        <span id="label_theta1">0.00</span>
+        <span id="label_theta1">{{ rob.theta1 }}</span>
       </div>
       <div class="control-row">
         <label>θ₂:</label>
-        <span id="label_theta2">0.00</span>
+        <span id="label_theta2">{{ rob.theta2 }}</span>
       </div>
       <div class="control-row">
         <label>θ₃:</label>
-        <span id="label_theta3">0.00</span>
+        <span id="label_theta3">{{ rob.theta3 }}</span>
       </div>
     </div>
   </div>
@@ -135,5 +173,54 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="{{ url_for('static', filename='main.js') }}"></script>
+  <script>
+      function set_theta(origin, value) {
+        let theta = parseFloat(value) / 100;
+        if (origin === 'slider') {
+          document.getElementById('spin_theta').value = theta.toFixed(2);
+        } else {
+          document.getElementById('slider_theta').value = Math.round(theta * 100);
+        }
+        // Send new theta to server
+        fetch('/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ theta: theta, phi: parseFloat(document.getElementById('spin_phi').value), h: parseFloat(document.getElementById('spin_h').value) })
+        });        
+      }
+
+      function set_phi(origin, value) {
+        let phi = parseFloat(value) / 100;
+        if (origin === 'slider') {
+          document.getElementById('spin_phi').value = phi.toFixed(2);
+        } else {
+          document.getElementById('slider_phi').value = Math.round(phi * 100);
+        }
+        // Send new phi to server
+        fetch('/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ theta: parseFloat(document.getElementById('spin_theta').value), phi: phi, h: parseFloat(document.getElementById('spin_h').value) })
+        });        
+      }
+
+
+  function set_h(origin, value) {
+    let h = parseFloat(value) / 100;
+    if (origin === 'slider') {
+      document.getElementById('spin_h').value = h.toFixed(2);
+    } else {
+      document.getElementById('slider_h').value = Math.round(h * 100);
+    }
+    // Send new h to server
+    fetch('/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ theta: parseFloat(document.getElementById('spin_theta').value), phi: parseFloat(document.getElementById('spin_phi').value), h: h })
+    });
+  }
+      
+  </script>
 </body>
 </html>
+

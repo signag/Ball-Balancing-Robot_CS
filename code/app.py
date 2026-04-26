@@ -1,19 +1,47 @@
+import os
+from pathlib import Path
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 import math
 from robotKinematics import RobotKinematics
 from controller import RobotController
+import logging
+from flask.logging import default_handler
 
 app = Flask(__name__)
 CORS(app)
 
+
+# Configure loggers
+logsPath = os.path.dirname(app.instance_path) + "/logs"
+os.makedirs(logsPath, exist_ok=True)
+logFile = logsPath + "/app.log"
+Path(logFile).touch(exist_ok=True)
+filehandler = logging.FileHandler(logFile)
+filehandler.setFormatter(app.logger.handlers[0].formatter)
+for logger in (
+    app.logger,
+    logging.getLogger("code.robotKinematics"),
+    logging.getLogger("code.controller")
+):
+    logger.setLevel(logging.ERROR)
+
+# >>>>> Uncomment the following line in order to log to the log file
+app.logger.addHandler(filehandler)
+
+# >>>>> Explicitely set specific log levels.
+app.logger.setLevel(logging.DEBUG)
+logging.getLogger("code.robotKinematics").setLevel(logging.DEBUG)
+logging.getLogger("code.controller").setLevel(logging.DEBUG)
+
+app.logger.debug("Application started")
 robot = RobotKinematics()
 rc = RobotController(robot)
 # Hard-coded parameters
-robot.lp = 7.125
-robot.l1 = 6.2
-robot.l2 = 4.5
-robot.lb = 4.0
+robot.lp = 7.14
+robot.l1 = 7.50
+robot.l2 = 4.50
+robot.lb = 5.56
 
 def compute_maxh(l1, l2, lp, lb):
     return math.sqrt(((l1 + l2) ** 2) - ((lp - lb) ** 2))
@@ -31,18 +59,24 @@ robot.minh = compute_minh(robot.l1, robot.l2, robot.lp, robot.lb) + 0.45
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    global robot
+    return render_template("index.html", rob=robot)
 
 @app.route("/update", methods=["POST"])
 def update_robot():
+    app.logger.debug("Received update request with data: %s", request.get_json())
     data = request.get_json()
     slider_theta = float(data.get("slider_theta", 0))   # 0..2000 => 0..20
     slider_phi   = float(data.get("slider_phi", 0))     # 0..36000 => 0..360
     slider_h     = float(data.get("slider_h", 814))     # scaled by 100 => real h
 
-    theta_deg = slider_theta / 100.0  # degrees
-    phi_deg   = slider_phi   / 100.0  # degrees
-    h         = slider_h     / 100.0
+    theta_deg = float(data["theta"])
+    phi_deg   = float(data["phi"])
+    h         = float(data["h"])
+
+    robot.theta_o = theta_deg
+    robot.phi_o   = phi_deg
+    robot.h_o     = h
 
     alpha = 0.0
     beta  = 0.0
@@ -56,47 +90,18 @@ def update_robot():
         beta  = math.sin(theta_rad) * math.sin(phi_rad)
         gamma = math.cos(theta_rad)
 
+        robot.alpha = alpha
+        robot.beta = beta
+        robot.gamma = gamma
+
         max_theta_for_h = robot.max_theta(h)
         robot.solve_inverse_kinematics_vector(alpha, beta, gamma, h)
           # in degrees
         
-        rc.set_motor_angles(math.degrees(math.pi*0.5 - robot.theta1), math.degrees(math.pi*0.5 - robot.theta2), math.degrees(math.pi*0.5 - robot.theta3))
+        rc.set_motor_angles(math.degrees(math.pi*0.5 - robot.theta1), math.degrees(math.pi*0.5 - robot.theta2), math.degrees(math.pi*0.5 - robot.theta3))       
     except:
         pass
-
-    response = {
-        "alpha": alpha,
-        "beta": beta,
-        "gamma": gamma,
-        "h": h,
-        "theta1": getattr(robot, "theta1", 0.0),
-        "theta2": getattr(robot, "theta2", 0.0),
-        "theta3": getattr(robot, "theta3", 0.0),
-        "A_points": [robot.A1, robot.A2, robot.A3],
-        "B_points": [robot.B1, robot.B2, robot.B3],
-        "C_points": [robot.C1, robot.C2, robot.C3],
-        "line_A": [
-            robot.A1, robot.A2,
-            robot.A2, robot.A3,
-            robot.A3, robot.A1
-        ],
-        "line_B": [
-            robot.B1, robot.B2,
-            robot.B2, robot.B3,
-            robot.B3, robot.B1
-        ],
-        "line_C1": [robot.A1, robot.C1, robot.C1, robot.B1],
-        "line_C2": [robot.A2, robot.C2, robot.C2, robot.B2],
-        "line_C3": [robot.A3, robot.C3, robot.C3, robot.B3],
-        "lp":   robot.lp,
-        "l1":   robot.l1,
-        "l2":   robot.l2,
-        "lb":   robot.lb,
-        "minh": robot.minh,
-        "maxh": robot.maxh,
-        "max_theta": max_theta_for_h
-    }
-    return jsonify(response)
+    return render_template("index.html", rob=robot)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)
