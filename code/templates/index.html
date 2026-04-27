@@ -60,6 +60,7 @@
       <div class="control-row"><label>lb:</label>   <span id="robot_lb">{{ rob.lb }}</span></div>
       <div class="control-row"><label>minh:</label> <span id="robot_minh">{{ (100 * rob.minh)|int / 100 }}</span></div>
       <div class="control-row"><label>maxh:</label> <span id="robot_maxh">{{ (100 * rob.maxh)|int / 100 }}</span></div>
+      <div class="control-row"><label>θ max:</label> <span id="robot_theta_ubound">{{ (100 * rob.theta_ubound)|int / 100 }}</span></div>
     </div>
 
     <!-- Input Sliders -->
@@ -73,15 +74,17 @@
           type="range" 
           id="slider_theta" 
           min="0" 
-          max="2000" 
+          max="{{ (rob.theta_ubound * 100)|int }}" 
           step="1"
-          value="{{ (rob.theta_o * 100)|int }}"
+          value="{{ (rob.theta * 100)|int }}"
           onchange="set_theta('slider', this.value)">
         <input 
           type="number" 
           id="spin_theta" 
+          min="0" 
+          max="{{ (rob.theta_ubound * 100)|int / 100 }}" 
           step="0.01" 
-          value="{{ (rob.theta_o * 100)|int / 100}}"
+          value="{{ (rob.theta * 100)|int / 100 }}"
           onchange="set_theta('spin', this.value * 100)">
       </div>
       <!-- Phi -->
@@ -94,13 +97,15 @@
           min="0" 
           max="36000" 
           step="1"
-          value="{{ (rob.phi_o * 100)|int }}"
+          value="{{ (rob.phi * 100)|int }}"
           onchange="set_phi('slider', this.value)">
         <input 
           type="number" 
           id="spin_phi" 
+          min="0" 
+          max="360" 
           step="0.01" 
-          value="{{ (rob.phi_o * 100)|int / 100}}" 
+          value="{{ (rob.phi * 100)|int / 100 }}" 
           onchange="set_phi('spin', this.value * 100)">
       </div>
       <!-- h -->
@@ -113,7 +118,7 @@
           min="{{ (rob.minh * 100)|int }}" 
           max="{{ (rob.maxh * 100)|int }}" 
           step="1"
-          value="{{ (rob.h_o * 100)|int }}"
+          value="{{ (rob.h * 100)|int }}"
           onchange="set_h('slider', this.value)">
         <input 
           type="number" 
@@ -121,7 +126,7 @@
           min="{{ (rob.minh * 100)|int / 100 }}" 
           max="{{ (rob.maxh * 100)|int / 100 }}" 
           step="0.01"
-          value="{{ (rob.h_o * 100)|int / 100}}"
+          value="{{ (rob.h * 100)|int / 100}}"
           onchange="set_h('spin', this.value * 100)">
       </div>
       <!-- Buttons -->
@@ -139,87 +144,103 @@
     <div class="group-box">
       <h3>Output</h3>
       <div class="control-row">
+        <label>h:</label>
+        <span id="label_h">{{ (100 * rob.h)|int / 100 }}</span>
+      </div>
+      <div class="control-row">
+        <label>θmax:</label>
+        <span id="label_theta_max">{{ (100 * rob.theta_max)|int / 100 }}</span>
+      </div>
+      <div class="control-row">
         <label>α:</label>
-        <span id="label_alpha">{{ rob.alpha }}</span>
+        <span id="label_alpha">{{ (100 * rob.alpha)|int / 100 }}</span>
       </div>
       <div class="control-row">
         <label>β:</label>
-        <span id="label_beta">{{ rob.beta }}</span>
+        <span id="label_beta">{{ (100 * rob.beta)|int / 100 }}</span>
       </div>
       <div class="control-row">
         <label>γ:</label>
-        <span id="label_gamma">{{ rob.gamma }}</span>
-      </div>
-      <div class="control-row">
-        <label>h:</label>
-        <span id="label_h">{{ rob.h_o }}</span>
+        <span id="label_gamma">{{ (100 * rob.gamma)|int / 100 }}</span>
       </div>
       <div class="control-row">
         <label>θ₁:</label>
-        <span id="label_theta1">{{ rob.theta1 }}</span>
+        <span id="label_theta1">{{ (100 * rob.theta1)|int / 100 }}</span>
       </div>
       <div class="control-row">
         <label>θ₂:</label>
-        <span id="label_theta2">{{ rob.theta2 }}</span>
+        <span id="label_theta2">{{ (100 * rob.theta2)|int / 100 }}</span>
       </div>
       <div class="control-row">
         <label>θ₃:</label>
-        <span id="label_theta3">{{ rob.theta3 }}</span>
+        <span id="label_theta3">{{ (100 * rob.theta3)|int / 100 }}</span>
       </div>
     </div>
   </div>
 
-  <!-- Three.js -->
+  <!-- Web Sockets -->
+  <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+
+  <!-- Three.js 
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="{{ url_for('static', filename='main.js') }}"></script>
+  -->
+
   <script>
-      function set_theta(origin, value) {
-        let theta = parseFloat(value) / 100;
-        if (origin === 'slider') {
-          document.getElementById('spin_theta').value = theta.toFixed(2);
-        } else {
-          document.getElementById('slider_theta').value = Math.round(theta * 100);
-        }
-        // Send new theta to server
-        fetch('/update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ theta: theta, phi: parseFloat(document.getElementById('spin_phi').value), h: parseFloat(document.getElementById('spin_h').value) })
-        });        
+    const socket = io();
+
+    function set_theta(origin, value) {
+      let theta = parseFloat(value) / 100;
+      if (origin === 'slider') {
+        document.getElementById('spin_theta').value = theta.toFixed(2);
+      } else {
+        document.getElementById('slider_theta').value = Math.round(theta * 100);
       }
-
-      function set_phi(origin, value) {
-        let phi = parseFloat(value) / 100;
-        if (origin === 'slider') {
-          document.getElementById('spin_phi').value = phi.toFixed(2);
-        } else {
-          document.getElementById('slider_phi').value = Math.round(phi * 100);
-        }
-        // Send new phi to server
-        fetch('/update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ theta: parseFloat(document.getElementById('spin_theta').value), phi: phi, h: parseFloat(document.getElementById('spin_h').value) })
-        });        
-      }
-
-
-  function set_h(origin, value) {
-    let h = parseFloat(value) / 100;
-    if (origin === 'slider') {
-      document.getElementById('spin_h').value = h.toFixed(2);
-    } else {
-      document.getElementById('slider_h').value = Math.round(h * 100);
+      // Send new theta to server
+      socket.emit("update_robot", {theta: theta, phi: parseFloat(document.getElementById('spin_phi').value), h: parseFloat(document.getElementById('spin_h').value) });
     }
-    // Send new h to server
-    fetch('/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ theta: parseFloat(document.getElementById('spin_theta').value), phi: parseFloat(document.getElementById('spin_phi').value), h: h })
+
+    function set_phi(origin, value) {
+      let phi = parseFloat(value) / 100;
+      if (origin === 'slider') {
+        document.getElementById('spin_phi').value = phi.toFixed(2);
+      } else {
+        document.getElementById('slider_phi').value = Math.round(phi * 100);
+      }
+      // Send new phi to server
+      socket.emit("update_robot", {theta: parseFloat(document.getElementById('spin_theta').value), phi: phi, h: parseFloat(document.getElementById('spin_h').value) });
+    }
+
+
+    function set_h(origin, value) {
+      let h = parseFloat(value) / 100;
+      if (origin === 'slider') {
+        document.getElementById('spin_h').value = h.toFixed(2);
+      } else {
+        document.getElementById('slider_h').value = Math.round(h * 100);
+      }
+      // Send new h to server
+      socket.emit("update_robot", {theta: parseFloat(document.getElementById('spin_theta').value), phi: parseFloat(document.getElementById('spin_phi').value), h: h });
+    }
+
+    socket.on("client_update", (data) => {
+      document.getElementById("slider_h").value = Math.round(data.h * 100).toFixed();
+      document.getElementById("spin_h").value = data.h.toFixed(2);
+      document.getElementById("slider_theta").value = Math.round(data.theta * 100).toFixed();
+      document.getElementById("spin_theta").value = data.theta.toFixed(2);
+      document.getElementById("slider_phi").value = Math.round(data.phi * 100).toFixed();
+      document.getElementById("spin_phi").value = data.phi.toFixed(2);
+      document.getElementById("label_h").textContent = data.h;
+      document.getElementById("label_theta_max").textContent = data.theta_max;
+      document.getElementById("label_alpha").textContent = data.alpha;
+      document.getElementById("label_beta").textContent = data.beta;
+      document.getElementById("label_gamma").textContent = data.gamma;
+      document.getElementById("label_theta1").textContent = data.theta1;
+      document.getElementById("label_theta2").textContent = data.theta2;
+      document.getElementById("label_theta3").textContent = data.theta3;
+
     });
-  }
-      
   </script>
 </body>
 </html>

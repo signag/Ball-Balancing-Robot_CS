@@ -21,7 +21,16 @@ class RobotKinematics:
         self.p = [0.0,0.0,self.maxh]    #Center of the Top plane
         self.h = (self.maxh + self.minh)/2
         self.maxtheta = 10
-        
+        self.max_theta(self.h)
+        self.theta_ubound = self.maxtheta
+
+        self._theta = 0
+        self._phi = 0
+
+        self.alpha = 0.0
+        self.beta = 0.0
+        self.gamma = 1.0
+
         #Top Nodes
         self.A1 = [0,0,0] 
         self.A2 = [0,0,0]
@@ -37,19 +46,10 @@ class RobotKinematics:
         self.C2 = [0.0, 0.0, 0.0]
         self.C3 = [0.0, 0.0, 0.0]
 
-        self.max_theta(self.h)
 
         self.theta1 = 0
         self.theta2 = 0
         self.theta3 = 0
-
-        self.theta_o = 0
-        self.phi_o = 0
-        self.h_o = self.minh
-
-        self.alpha = 0.0
-        self.beta = 0.0
-        self.gamma = 0.0
 
     def compute_maxh(self):
         return math.sqrt(((self.l1 + self.l2) ** 2) - ((self.lp - self.lb) ** 2))
@@ -220,7 +220,25 @@ class RobotKinematics:
 
         self.maxtheta = max(0, math.degrees(round(theta_low, 4)) - 0.5)
 
+    @property
+    def theta_max(self):
+        self.max_theta(self.h)
+        return self.maxtheta
 
+    @property
+    def theta(self):
+        return self._theta
 
+    @theta.setter
+    def theta(self, value):
+        self.max_theta(self.h)
+        self._theta = min(value, self.maxtheta)
 
+    @property
+    def phi(self):
+        return self._phi
+
+    @phi.setter
+    def phi(self, value):
+        self._phi = value % 360
     
