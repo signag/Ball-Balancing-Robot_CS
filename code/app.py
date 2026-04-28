@@ -1,11 +1,10 @@
 import os
+import json
 from pathlib import Path
 from flask import Flask, render_template
 from flask_socketio import SocketIO, emit
+import paho.mqtt.client as mqtt
 from flask_cors import CORS
-import math
-from robotKinematics import RobotKinematics
-from controller import RobotController
 import logging
 from flask.logging import default_handler
 
@@ -13,79 +12,107 @@ app = Flask(__name__)
 socketio = SocketIO(app)
 CORS(app)
 
-
 # Configure loggers
 logsPath = os.path.dirname(app.instance_path) + "/logs"
 os.makedirs(logsPath, exist_ok=True)
-logFile = logsPath + "/app.log"
+logFile = logsPath + "/bb_robot.log"
 Path(logFile).touch(exist_ok=True)
 filehandler = logging.FileHandler(logFile)
 filehandler.setFormatter(app.logger.handlers[0].formatter)
-for logger in (
-    app.logger,
-    logging.getLogger("code.robotKinematics"),
-    logging.getLogger("code.controller")
-):
-    logger.setLevel(logging.ERROR)
-
-# >>>>> Uncomment the following line in order to log to the log file
-app.logger.addHandler(filehandler)
-
-# >>>>> Explicitely set specific log levels.
-app.logger.setLevel(logging.DEBUG)
-logging.getLogger("code.robotKinematics").setLevel(logging.DEBUG)
-logging.getLogger("code.controller").setLevel(logging.DEBUG)
+logger = app.logger
+logger.setLevel(logging.DEBUG)
+logger.addHandler(filehandler)
 
 #
-# Initialize robot
+# Set up messaging client
 #
-app.logger.debug("Application started")
-robot = RobotKinematics(lp=7.14, l1=7.50, l2=4.50, lb=5.56, invert=False)
-rc = RobotController(robot)
-try:
-    robot.solve_inverse_kinematics_vector(robot.alpha, robot.beta, robot.gamma, robot.h)
-    rc.set_motor_angles(math.degrees(math.pi*0.5 - robot.theta1), math.degrees(math.pi*0.5 - robot.theta2), math.degrees(math.pi*0.5 - robot.theta3))       
-except Exception as e:
-    app.logger.error("Error during robot initialization: %s", e)
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+
+def on_connect(client, userdata, flags, reason_code, properties):
+    """Handle MQTT connect
+
+    Args:
+        client (mqtt.Client): The MQTT client instance.
+        userdata (any): The private user data as set in Client() or userdata_set().
+        flags (dict): Response flags sent by the broker.
+        reason_code (int): The reason code for the connection.
+        properties (mqtt.Properties): The properties of the MQTT message.
+    """
+    logger.debug("Connected with reason code: %s", reason_code)
+    client.subscribe("robot/response")
+    logger.debug("Subscribed to topic: robot/response")
+
+def on_message(client, userdata, msg):
+    """Process MQTT message from robot
+
+    Args:
+        client (mqtt.Client): The MQTT client instance.
+        userdata (any): The private user data as set in Client() or userdata_set().
+        msg (mqtt.MQTTMessage): An instance of MQTTMessage, which contains topic, payload, qos, retain.
+    """
+    data = json.loads(msg.payload.decode())
+    logger.debug("Received MQTT message: %s", data)
+    status = data.get("status")
+    received = data.get("received")
+    message = data.get("message")
+    if "params" in data:
+        logger.debug("Received robot params: %s", data["params"])
+        params = data.get("params", {})
+        update_robot_params(params)
+    if "state" in data:
+        logger.debug("Received robot state: %s", data["state"])
+        state = data.get("state", {})
+        update_robot_state(state)
+
+client.on_connect = on_connect
+client.on_message = on_message
+client.connect("localhost", 1883)
+client.loop_start()
+
+def update_robot_state(state):
+    """Update the robot state based on incoming data and return the new state.
+
+    Args:
+        state (dict): A dictionary containing the new state parameters for the robot.
+    """
+    logger.debug("update_robot_state - state: %s", state)
+    socketio.emit("state_update", state)
+
+def update_robot_params(params):
+    """Update the robot parameters based on incoming data and return the new parameters.
+
+    Args:
+        params (dict): A dictionary containing the static parameters for the robot.
+    """
+    logger.debug("update_robot_params - params: %s", params)
+    socketio.emit("params_update", params)
 
 @app.route("/")
 def index():
-    global robot
-    return render_template("index.html", rob=robot)
+    return render_template("index.html")
+
+@socketio.on("request_initial_data")
+def handle_initial_request():
+    request = {
+        "method": "get_data"
+    }
+    client.publish("robot/request", json.dumps(request))
+    logger.debug("Published initial data request to MQTT: %s", request)
 
 @socketio.on("update_robot")
 def update_robot(data):
-    app.logger.debug("Start update_robot with data: %s", data)
-    robot.phi   = float(data["phi"])
-    robot.h     = float(data["h"])
-    robot.theta = float(data["theta"])
-
-    theta_rad = math.radians(robot.theta)
-    phi_rad   = math.radians(robot.phi)
-    robot.alpha = math.sin(theta_rad) * math.cos(phi_rad)
-    robot.beta  = math.sin(theta_rad) * math.sin(phi_rad)
-    robot.gamma = math.cos(theta_rad)
-
-    try:
-        robot.solve_inverse_kinematics_vector(robot.alpha, robot.beta, robot.gamma, robot.h)
-        rc.set_motor_angles(math.degrees(math.pi*0.5 - robot.theta1), math.degrees(math.pi*0.5 - robot.theta2), math.degrees(math.pi*0.5 - robot.theta3))       
-    except Exception as e:
-        app.logger.error("Error during robot update: %s", e)
-
-    result = {
-        "theta": int(100 * robot.theta) / 100,
-        "phi": int(100 * robot.phi) / 100,
-        "h": int(100 * robot.h) / 100,
-        "alpha": int(100 * math.degrees(robot.alpha)) / 100,
-        "beta": int(100 * math.degrees(robot.beta)) / 100,
-        "gamma": int(100 * math.degrees(robot.gamma)) / 100,
-        "theta1": int(100 * math.degrees(robot.theta1)) / 100,
-        "theta2": int(100 * math.degrees(robot.theta2)) / 100,
-        "theta3": int(100 * math.degrees(robot.theta3)) / 100,
-        "theta_max": int(100 * robot.theta_max) / 100
+    logger.debug("Start update_robot with data: %s", data)
+    request = {
+        "method" : "update",
+        "params" : {
+            "theta"   : data.get("theta"),
+            "phi"     : data.get("phi"),
+            "h"       : data.get("h")
+        }
     }
-    app.logger.debug("End update_robot with computed angles: %s", result)
-    socketio.emit("client_update", result)
+    client.publish("robot/request", json.dumps(request))
+    logger.debug("Published update request to MQTT: %s", request)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    logger.debug("Starting ball balancing robot client")
+    app.run(host="0.0.0.0", port=5000, debug=False)
