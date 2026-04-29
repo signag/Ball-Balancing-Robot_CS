@@ -8,13 +8,15 @@ from robotKinematics import RobotKinematics
 from controller import RobotController
 import logging
 #
-# Robot construction parameters
+# Robot configuration
 #
-LP = 7.14    #Radius of Top
-L1 = 7.50    #Top Arm
-L2 = 4.50    #Bottom Arm
-LB = 5.56    #Radius of Bottom
-INVERT = False    #Whether the arm stays inward or outward
+ROBOT_CONFIG_FILE = "bb_robot_config.json"
+# Defaults
+LP = 7.125
+L1 = 6.20
+L2 = 4.50
+LB = 4.00
+INVERT = False
 #
 # Configure logging
 #
@@ -48,8 +50,34 @@ class BallBalancingRobot:
         """Initialize the ball balancing robot with specified parameters and set it to a default state.
         """
         logger.debug("Initializing BallBalancingRobot")
+
+        # Load robot configuration from file if it exists
+        global LP, L1, L2, LB, INVERT
+        self.calibration = {"theta1_offset": 0.0, "theta2_offset": 0.0, "theta3_offset": 0.0}
+        fp = Path(__file__).parent / ROBOT_CONFIG_FILE
+        if fp.is_file():
+            logger.debug("Loading robot configuration from file: %s", fp)
+            with open(fp, "r") as f:
+                robot_config = json.load(f)
+                if "configuration" in robot_config:
+                    config = robot_config["configuration"]
+                    LP = config.get("LP", LP)
+                    L1 = config.get("L1", L1)
+                    L2 = config.get("L2", L2)
+                    LB = config.get("LB", LB)
+                    INVERT = config.get("invert", INVERT)
+                logger.debug("Loaded robot configuration: lp=%s, l1=%s, l2=%s, lb=%s, invert=%s", LP, L1, L2, LB, INVERT)
+                if "calibration" in robot_config:
+                    calibration = robot_config["calibration"]
+                    self.calibration = {
+                        "theta1_offset": calibration.get("theta1_offset", 0.0),
+                        "theta2_offset": calibration.get("theta2_offset", 0.0),
+                        "theta3_offset": calibration.get("theta3_offset", 0.0)
+                    }
+                    logger.debug("Loaded calibration parameters: %s", self.calibration)
+
         self.robot = RobotKinematics(lp=LP, l1=L1, l2=L2, lb=LB, invert=INVERT)
-        self.controller = RobotController(self.robot)
+        self.controller = RobotController(self.robot, calibration=self.calibration)
         try:
             self.robot.solve_inverse_kinematics_vector(self.robot.alpha, self.robot.beta, self.robot.gamma, self.robot.h)
             self.controller.set_motor_angles(

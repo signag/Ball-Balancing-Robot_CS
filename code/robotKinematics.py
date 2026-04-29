@@ -6,9 +6,9 @@ logger = logging.getLogger(__name__)
 
 class RobotKinematics:
 
-    def __init__(self, lp=7.14, l1=7.50, l2=4.50, lb=5.56, invert=False):
+    def __init__(self, lp=7.125, l1=6.20, l2=4.50, lb=4.00, invert=False):
 
-        logger.debug("Initializing RobotKinematics with parameters: lp=%s, l1=%s, l2=%s, lb=%s, invert=%s", lp, l1, l2, lb, invert)
+        logger.debug("RobotKinematics.__init__ - Initializing with parameters: lp=%s, l1=%s, l2=%s, lb=%s, invert=%s", lp, l1, l2, lb, invert)
 
         self.lp = lp    #Radius of Top
         self.l1 = l1    #Top Arm

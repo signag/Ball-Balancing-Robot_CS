@@ -6,15 +6,18 @@ from adafruit_servokit import ServoKit
 from robotKinematics import RobotKinematics
 import math
 import random
+import logging
+
+logger = logging.getLogger(__name__)
 
 def clamp(value, lower=19, upper=90):
     return max(lower, min(value, upper))
 
 class RobotController:
-    def __init__(self, model, lp=7.125, l1=6.20, l2=4.50, lb=4.00):
-        # Initialize robot kinematics
-        #self.robot = RobotKinematics(lp=lp, l1=l1, l2=l2, lb=lb)
+    def __init__(self, model, calibration=None):
+        logger.debug("RobotController.__init__ - Initializing with calibration=%s", calibration)
         self.robot = model
+        self.calibration = calibration or {"theta1_offset": 0.0, "theta2_offset": 0.0, "theta3_offset": 0.0}
         
         # Initialize the ServoKit and assign servos
         self.Controller = ServoKit(channels=16)
@@ -44,9 +47,9 @@ class RobotController:
     def set_motor_angles(self, theta1, theta2, theta3):
         
         # Calibrate offsets 
-        self.s1.angle = clamp(theta1)
-        self.s2.angle = clamp(theta2) + 3
-        self.s3.angle = clamp(theta3) + 9
+        self.s1.angle = clamp(theta1 + self.calibration["theta1_offset"])
+        self.s2.angle = clamp(theta2 + self.calibration["theta2_offset"])
+        self.s3.angle = clamp(theta3 + self.calibration["theta3_offset"])
 
     def interpolate_time(self, target_angles, steps=100, duration=0.3, individual_durations=None):
  

@@ -1,0 +1,14 @@
+{
+    "configuration": {
+        "LP": 7.14,
+        "L1": 7.50,
+        "L2": 4.50,
+        "LB": 5.56,
+        "INVERT": false
+    },
+    "calibration": {
+        "theta1_offset": 0.0,
+        "theta2_offset": 3.0,
+        "theta3_offset": 9.0
+    }
+}
