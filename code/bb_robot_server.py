@@ -1,4 +1,5 @@
 import paho.mqtt.client as mqtt
+import signal
 import json
 import os
 from pathlib import Path
@@ -27,20 +28,20 @@ streamhandler = logging.StreamHandler()
 streamhandler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s in %(name)s: %(message)s'))
 
 for logger in (
-    logging.getLogger("code.bb_robot"),
-    logging.getLogger("code.robotKinematics"),
-    logging.getLogger("code.controller")
+    logging.getLogger("bb_robot_server"),
+    logging.getLogger("robotKinematics"),
+    logging.getLogger("controller")
 ):
     logger.setLevel(logging.ERROR)
     logger.addHandler(filehandler)
     logger.addHandler(streamhandler)
 
 # >>>>> Explicitely set specific log levels.
-logging.getLogger("code.bb_robot").setLevel(logging.DEBUG)
-logging.getLogger("code.robotKinematics").setLevel(logging.DEBUG)
-logging.getLogger("code.controller").setLevel(logging.DEBUG)
+logging.getLogger("bb_robot_server").setLevel(logging.DEBUG)
+logging.getLogger("robotKinematics").setLevel(logging.DEBUG)
+logging.getLogger("controller").setLevel(logging.DEBUG)
 
-logger = logging.getLogger("code.bb_robot")
+logger = logging.getLogger("bb_robot_server")
 
 class BallBalancingRobot:
     def __init__(self):
@@ -58,6 +59,28 @@ class BallBalancingRobot:
             )       
         except Exception as e:
             logger.error("Error during robot initialization: %s", e)
+
+    def reset(self, response):
+        """Reset the robot to its default state.
+        """
+        logger.debug("Resetting BallBalancingRobot to default state")
+        self.robot = RobotKinematics(lp=LP, l1=L1, l2=L2, lb=LB, invert=INVERT)
+        self.controller = RobotController(self.robot)
+        try:
+            self.robot.solve_inverse_kinematics_vector(self.robot.alpha, self.robot.beta, self.robot.gamma, self.robot.h)
+            self.controller.set_motor_angles(
+                math.degrees(math.pi*0.5 - self.robot.theta1), 
+                math.degrees(math.pi*0.5 - self.robot.theta2), 
+                math.degrees(math.pi*0.5 - self.robot.theta3)
+            )       
+        except Exception as e:
+            logger.error("Error during robot initialization: %s", e)
+            response["status"] = "error"
+            response["message"] = str(e)
+        response["status"] = "success"
+        response["message"] = ""
+        response["state"] = self.state
+        return response
     
     def update(self, params, response) -> dict:
         """Uptate the robot's state to given height and orientation of upper plane
@@ -180,9 +203,19 @@ def on_message(client, userdata, msg):
         response["message"] = ""
     if method == "update":
         response = bb_robot.update(params, response)
+    if method == "reset":
+        response = bb_robot.reset(response)
     
     client.publish("robot/response", json.dumps(response))
     logger.debug("Sent response: %s", response)
+
+def shutdown(sig, frame):
+    logger.debug("Shutting down...")
+    client.disconnect()   # 👈 stops loop_forever
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, shutdown)
+signal.signal(signal.SIGTERM, shutdown)    
 
 logger.debug("Starting ball balancing robot server")
 #

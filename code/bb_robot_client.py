@@ -113,6 +113,14 @@ def update_robot(data):
     client.publish("robot/request", json.dumps(request))
     logger.debug("Published update request to MQTT: %s", request)
 
+@socketio.on("reset_robot")
+def handle_reset_request():
+    request = {
+        "method": "reset"
+    }
+    client.publish("robot/request", json.dumps(request))
+    logger.debug("Published reset request to MQTT: %s", request)
+
 if __name__ == "__main__":
     logger.debug("Starting ball balancing robot client")
     app.run(host="0.0.0.0", port=5000, debug=False)

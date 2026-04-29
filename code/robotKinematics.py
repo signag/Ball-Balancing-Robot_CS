@@ -19,9 +19,9 @@ class RobotKinematics:
         self.maxh = self.compute_maxh() - 0.2    #maximum height that the Top plane should be 
         self.minh = self.compute_minh() + 0.45
         self.p = [0.0,0.0,self.maxh]    #Center of the Top plane
-        self.h = (self.maxh + self.minh)/2
+        self._h = (self.maxh + self.minh)/2
         self.maxtheta = 10
-        self.max_theta(self.h)
+        self.max_theta(self._h)
         self.theta_ubound = self.maxtheta
 
         self._theta = 0
@@ -173,7 +173,7 @@ class RobotKinematics:
     def solve_inverse_kinematics_spherical(self, theta, phi, h): #psi = azimuthal angle, theta = polar angle
 
         #conversion
-        self.h = h
+        self._h = h
         self.max_theta(h)
 
         theta = min(theta, self.maxtheta)
@@ -222,7 +222,7 @@ class RobotKinematics:
 
     @property
     def theta_max(self):
-        self.max_theta(self.h)
+        self.max_theta(self._h)
         return self.maxtheta
 
     @property
@@ -231,7 +231,7 @@ class RobotKinematics:
 
     @theta.setter
     def theta(self, value):
-        self.max_theta(self.h)
+        self.max_theta(self._h)
         self._theta = min(value, self.maxtheta)
 
     @property
@@ -242,3 +242,12 @@ class RobotKinematics:
     def phi(self, value):
         self._phi = value % 360
     
+    @property
+    def h(self):
+        return self._h
+
+    @h.setter
+    def h(self, value):
+        self._h = min(max(value, self.minh), self.maxh)
+        self.max_theta(self._h)
+        self.theta = self._theta

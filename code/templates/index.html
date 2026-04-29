@@ -131,12 +131,7 @@
       </div>
       <!-- Buttons -->
       <div class="control-row">
-        <button id="apply_button">Apply</button>
-        <button id="reset_button">Reset</button>
-      </div>
-      <div class="control-row">
-        <label>Auto:</label>
-        <input type="checkbox" id="auto_update" checked>
+        <button id="reset_button" onclick="confirm_reset()">Reset</button>
       </div>
     </div>
 
@@ -212,7 +207,6 @@
       socket.emit("update_robot", {theta: parseFloat(document.getElementById('spin_theta').value), phi: phi, h: parseFloat(document.getElementById('spin_h').value) });
     }
 
-
     function set_h(origin, value) {
       let h = parseFloat(value) / 100;
       if (origin === 'slider') {
@@ -222,6 +216,12 @@
       }
       // Send new h to server
       socket.emit("update_robot", {theta: parseFloat(document.getElementById('spin_theta').value), phi: parseFloat(document.getElementById('spin_phi').value), h: h });
+    }
+
+    function confirm_reset() {
+      if (confirm("Do you want to reset the robot to its default state?")) {
+        socket.emit("reset_robot");
+      }
     }
 
     socket.on("connect", () => {
@@ -259,6 +259,10 @@
       document.getElementById("robot_minh").textContent = data.minh.toFixed(2);
       document.getElementById("robot_maxh").textContent = data.maxh.toFixed(2);
       document.getElementById("robot_theta_ubound").textContent = data.theta_ubound.toFixed(2);
+      document.getElementById("slider_h").min = (data.minh * 100).toFixed();
+      document.getElementById("slider_h").max = (data.maxh * 100).toFixed();
+      document.getElementById("spin_h").min = data.minh.toFixed(2);
+      document.getElementById("spin_h").max = data.maxh.toFixed(2);
     });
   </script>
 </body>
