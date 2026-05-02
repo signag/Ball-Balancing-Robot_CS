@@ -38,6 +38,14 @@ class Camera:
         cv2.imshow(window_name, image)
         cv2.waitKey(1) 
 
+    def draw_position(self, image, center, pos):
+        x0, y0 = center
+        x, y = pos
+        cv2.line(image, (x - 10, y), (x + 10, y), (0, 0, 255), 2)
+        cv2.line(image, (x, y - 10), (x, y + 10), (0, 0, 255), 2)
+        cv2.line(image, (x0 - 10, y0), (x0 + 10, y0), (0, 255, 0), 2)
+        cv2.line(image, (x0, y0 - 10), (x0, y0 + 10), (0, 255, 0), 2)
+        return image
 
     def terminate(self):
         self.picam2.stop()

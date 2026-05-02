@@ -10,5 +10,16 @@
         "theta1_offset": 0.0,
         "theta2_offset": 3.0,
         "theta3_offset": 9.0
+    },
+    "pid_parameters": {
+        "kp": 0.0063,
+        "ki": 0.00005,
+        "kd": 0.006025,
+        "alpha": 0.65,
+        "beta": 0.3
+    },
+    "camera_parameters": {
+        "resolution": [1640, 1232],
+        "format": "RGB888"
     }
 }
