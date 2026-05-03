@@ -41,9 +41,9 @@ for logger in (
     # logger.addHandler(streamhandler)
 
 # >>>>> Explicitely set specific log levels.
-# logging.getLogger("bb_robot_server").setLevel(logging.DEBUG)
-# logging.getLogger("robotKinematics").setLevel(logging.DEBUG)
-# logging.getLogger("controller").setLevel(logging.DEBUG)
+logging.getLogger("bb_robot_server").setLevel(logging.DEBUG)
+logging.getLogger("robotKinematics").setLevel(logging.DEBUG)
+logging.getLogger("controller").setLevel(logging.DEBUG)
 
 logger = logging.getLogger("bb_robot_server")
 
@@ -61,6 +61,7 @@ class BallBalancingRobot:
         logger.debug("Initializing BallBalancingRobot")
 
         # Load robot configuration from file if it exists
+        self.mode = "manual"
         self.configuration = {"LP": 7.125, "L1": 6.20, "L2": 4.50, "LB": 4.00, "INVERT": False}
         self.calibration = {"theta1_offset": 0.0, "theta2_offset": 0.0, "theta3_offset": 0.0}
         self.pid_parameters = {"kp": 0.0063, "ki": 0.00005, "kd": 0.006025, "alpha": 0.65, "beta": 0.3}
@@ -70,6 +71,8 @@ class BallBalancingRobot:
             logger.debug("Loading robot configuration from file: %s", fp)
             with open(fp, "r") as f:
                 robot_config = json.load(f)
+                if "mode" in robot_config:
+                    self.mode = robot_config["mode"]
                 if "configuration" in robot_config:
                     configuration = robot_config["configuration"]
                     self.configuration.update({
@@ -128,6 +131,16 @@ class BallBalancingRobot:
             )       
         except Exception as e:
             logger.error("Error during robot initialization: %s", e)
+
+    def set_mode(self, params, response):
+        """Set the robot's mode.
+        """
+        logger.debug("Setting BallBalancingRobot mode to %s", params.get("mode"))
+        self.mode = params.get("mode")
+        response["status"] = "success"
+        response["message"] = ""
+        response["state"] = self.state
+        return response
 
     def reset(self, response):
         """Reset the robot to its default state.
@@ -198,6 +211,7 @@ class BallBalancingRobot:
         """Return the current state of the robot, including angles, height, and motor positions.
         """
         result = {
+            "mode": self.mode,
             "theta": self.robot.theta,
             "phi": self.robot.phi,
             "h": self.robot.h,
@@ -208,9 +222,9 @@ class BallBalancingRobot:
             "theta2": math.degrees(self.robot.theta2),
             "theta3": math.degrees(self.robot.theta3),
             "theta_max": self.robot.theta_max,
-            "theta1_offset": self.robot.calibration["theta1_offset"],
-            "theta2_offset": self.robot.calibration["theta2_offset"],
-            "theta3_offset": self.robot.calibration["theta3_offset"]
+            "theta1_offset": self.calibration["theta1_offset"],
+            "theta2_offset": self.calibration["theta2_offset"],
+            "theta3_offset": self.calibration["theta3_offset"]
         }
         return result
 
@@ -277,6 +291,8 @@ def on_message(client, userdata, msg):
         response = bb_robot.update(params, response)
     if method == "reset":
         response = bb_robot.reset(response)
+    if method == "set_mode":
+        response = bb_robot.set_mode(params, response)
     
     client.publish("robot/response", json.dumps(response))
     logger.debug("Sent response: %s", response)
@@ -324,7 +340,8 @@ def capture(cam):
         with frame_lock:
             latest_frame = frame 
 
-def process(cam):
+def process(rob:BallBalancingRobot):
+    cam = rob.cam
     hz = 50
     global latest_frame, latest_image, x, y
     while True:
@@ -338,13 +355,11 @@ def process(cam):
         x_t, y_t = (100, 75)  # Target position
         with image_lock:
             latest_image = cam.draw_position(frame_copy, (x_t, y_t), (x, y))
-        # update_robot_pos(robot, model, PID, x_t, y_t, x, y)
-        #cam.display_draw(frame_copy, (x,y))
-        #print(f"Coordinates: {x, y}")
+        if rob.mode == "auto":
+            update_robot_pos(rob.controller, rob.robot, rob.pid, x_t, y_t, x, y)
         elapsed = time.perf_counter() - loop_start
         sleep_time = (1 / hz) - elapsed
         if sleep_time > 0:
-            #print(sleep_time)
             time.sleep(sleep_time)
 
 def update_robot_pos(robotcontroller, robotkinematics, pidcontroller, x_t, y_t, x, y): #x_t, y_t: target position, x, y: current position, t: duration 
@@ -380,7 +395,7 @@ if __name__ == "__main__":
 
     # Start threads
     threading.Thread(target=capture, args=(bb_robot.cam,), daemon=True).start()
-    threading.Thread(target=process, args=(bb_robot.cam,), daemon=True).start()
+    threading.Thread(target=process, args=(bb_robot,), daemon=True).start()
     threading.Thread(target=start_flask, daemon=True).start()
     time.sleep(2)
     #threading.Thread(target=pid_loop).start()

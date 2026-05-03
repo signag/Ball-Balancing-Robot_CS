@@ -56,7 +56,7 @@
       <div class="control-row">
         <label>Mode:</label>
         <span id="robot_mode">
-          <select id="select_mode">
+          <select id="select_mode" onchange="set_mode()">
             <option value="manual">Manual</option>
             <option value="auto">Auto</option>
             <option value="calibration">Calibration</option>
@@ -79,9 +79,9 @@
     <!-- Robot Calibration -->
     <div class="group-box">
       <h3>Robot Calibration</h3>
-      <div class="control-row"><label>θ1 offset:</label> <span id="robot_theta1_offset">0</span></div>
-      <div class="control-row"><label>θ2 offset:</label> <span id="robot_theta2_offset">0</span></div>
-      <div class="control-row"><label>θ3 offset:</label> <span id="robot_theta3_offset">0</span></div>
+      <div class="control-row"><label>θ₁ off:</label> <span id="robot_theta1_offset">0</span></div>
+      <div class="control-row"><label>θ₂ off:</label> <span id="robot_theta2_offset">0</span></div>
+      <div class="control-row"><label>θ₃ off:</label> <span id="robot_theta3_offset">0</span></div>
     </div>
 
     <!-- Input Sliders -->
@@ -245,6 +245,13 @@
       }
     }
 
+    function set_mode() {
+      new_mode = document.getElementById("select_mode").value;
+      if (confirm("Do you want to set the mode to " + new_mode + "?")) {
+        socket.emit("set_mode", { mode: new_mode });
+      }
+    }
+
     socket.on("connect", () => {
         console.log("Connected");
 
@@ -254,6 +261,7 @@
 
     socket.on("state_update", (data) => {
       console.log("socket.on(state_update) - data:", data);
+      document.getElementById("select_mode").value = (data.mode);
       document.getElementById("slider_theta").value = (data.theta * 100).toFixed();
       document.getElementById("spin_theta").value = data.theta.toFixed(2);
       document.getElementById("slider_phi").value = (data.phi * 100).toFixed();

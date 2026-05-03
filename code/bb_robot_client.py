@@ -20,7 +20,7 @@ Path(logFile).touch(exist_ok=True)
 filehandler = logging.FileHandler(logFile)
 filehandler.setFormatter(app.logger.handlers[0].formatter)
 logger = app.logger
-logger.setLevel(logging.ERROR)
+logger.setLevel(logging.DEBUG)
 logger.addHandler(filehandler)
 
 #
@@ -120,6 +120,17 @@ def handle_reset_request():
     }
     client.publish("robot/request", json.dumps(request))
     logger.debug("Published reset request to MQTT: %s", request)
+
+@socketio.on("set_mode")
+def handle_set_mode(data):
+    request = {
+        "method": "set_mode",
+        "params": {
+            "mode": data.get("mode")
+        }
+    }
+    client.publish("robot/request", json.dumps(request))
+    logger.debug("Published set mode request to MQTT: %s", request)
 
 if __name__ == "__main__":
     logger.debug("Starting ball balancing robot client")
