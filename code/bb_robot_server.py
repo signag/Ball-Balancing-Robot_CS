@@ -207,7 +207,10 @@ class BallBalancingRobot:
             "theta1": math.degrees(self.robot.theta1),
             "theta2": math.degrees(self.robot.theta2),
             "theta3": math.degrees(self.robot.theta3),
-            "theta_max": self.robot.theta_max
+            "theta_max": self.robot.theta_max,
+            "theta1_offset": self.robot.calibration["theta1_offset"],
+            "theta2_offset": self.robot.calibration["theta2_offset"],
+            "theta3_offset": self.robot.calibration["theta3_offset"]
         }
         return result
 

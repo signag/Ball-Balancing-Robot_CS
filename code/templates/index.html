@@ -51,6 +51,18 @@
     <!-- Three.js rendering canvas is appended here by main.js -->
   </div>
   <div id="right-panel">
+    <!-- Robot Mode -->
+    <div class="group-box">
+      <div class="control-row">
+        <label>Mode:</label>
+        <span id="robot_mode">
+          <select id="select_mode">
+            <option value="manual">Manual</option>
+            <option value="auto">Auto</option>
+            <option value="calibration">Calibration</option>
+          </select>
+        </span></div>
+    </div>
 
     <!-- Robot Params -->
     <div class="group-box">
@@ -62,6 +74,14 @@
       <div class="control-row"><label>minh:</label> <span id="robot_minh">0</span></div>
       <div class="control-row"><label>maxh:</label> <span id="robot_maxh">0</span></div>
       <div class="control-row"><label>θ max:</label> <span id="robot_theta_ubound">0</span></div>
+    </div>
+
+    <!-- Robot Calibration -->
+    <div class="group-box">
+      <h3>Robot Calibration</h3>
+      <div class="control-row"><label>θ1 offset:</label> <span id="robot_theta1_offset">0</span></div>
+      <div class="control-row"><label>θ2 offset:</label> <span id="robot_theta2_offset">0</span></div>
+      <div class="control-row"><label>θ3 offset:</label> <span id="robot_theta3_offset">0</span></div>
     </div>
 
     <!-- Input Sliders -->
@@ -248,7 +268,9 @@
       document.getElementById("label_theta1").textContent = data.theta1.toFixed(2);
       document.getElementById("label_theta2").textContent = data.theta2.toFixed(2);
       document.getElementById("label_theta3").textContent = data.theta3.toFixed(2);
-
+      document.getElementById("robot_theta1_offset").textContent = data.theta1_offset.toFixed(2);
+      document.getElementById("robot_theta2_offset").textContent = data.theta2_offset.toFixed(2);
+      document.getElementById("robot_theta3_offset").textContent = data.theta3_offset.toFixed(2);
     });
 
     socket.on("params_update", (data) => {
