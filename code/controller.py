@@ -21,9 +21,9 @@ class RobotController:
         
         # Initialize the ServoKit and assign servos
         self.Controller = ServoKit(channels=16)
-        self.s1 = self.Controller.servo[13]
+        self.s1 = self.Controller.servo[14]
         self.s2 = self.Controller.servo[15]
-        self.s3 = self.Controller.servo[14]
+        self.s3 = self.Controller.servo[13]
 
         # Configure servos
         for s in (self.s1, self.s2, self.s3):
@@ -34,15 +34,15 @@ class RobotController:
 
     def initialize(self):
       
-        print("Initializing ...")
+        logger.debug("RobotController.initialize - Initializing ...")
         self.set_motor_angles(54, 54, 54)
-        # self.interpolate_time([19, 19, 19], duration=0.25)
+        self.interpolate_time([19, 19, 19], duration=0.25)
         time.sleep(1)
-        # self.interpolate_time([90, 90, 90], duration=0.25)
+        self.interpolate_time([90, 90, 90], duration=0.25)
         time.sleep(1)
         self.Goto_time_spherical(0, 0, 8.26, t=0.25)
         time.sleep(1)
-        print("Initialized!")
+        logger.debug("RobotController.initialize - Initialized")
     
     def set_motor_angles(self, theta1, theta2, theta3):
         

@@ -8,9 +8,9 @@
         "INVERT": false
     },
     "calibration": {
-        "theta1_offset": 0.0,
+        "theta1_offset": 9.0,
         "theta2_offset": 3.0,
-        "theta3_offset": 9.0
+        "theta3_offset": 0.0
     },
     "pid_parameters": {
         "kp": 0.0063,

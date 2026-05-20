@@ -20,7 +20,7 @@ Path(logFile).touch(exist_ok=True)
 filehandler = logging.FileHandler(logFile)
 filehandler.setFormatter(app.logger.handlers[0].formatter)
 logger = app.logger
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.ERROR)
 logger.addHandler(filehandler)
 
 #

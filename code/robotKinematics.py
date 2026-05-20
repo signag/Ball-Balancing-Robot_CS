@@ -19,17 +19,9 @@ class RobotKinematics:
         self.maxh = self.compute_maxh() - 0.2    #maximum height that the Top plane should be 
         self.minh = self.compute_minh() + 0.45
         self.p = [0.0,0.0,self.maxh]    #Center of the Top plane
-        self._h = (self.maxh + self.minh)/2
         self.maxtheta = 10
-        self.max_theta(self._h)
+        self.max_theta((self.maxh + self.minh)/2)
         self.theta_ubound = self.maxtheta
-
-        self._theta = 0
-        self._phi = 0
-
-        self.alpha = 0.0
-        self.beta = 0.0
-        self.gamma = 1.0
 
         #Top Nodes
         self.A1 = [0,0,0] 
@@ -62,7 +54,7 @@ class RobotKinematics:
         else:
             return 0
     
-    def solve_top(self, a, b, c, h): #Orientation vector n: [alpha, beta, gamma], h: height
+    def solve_top(self, a, b, c, h): #Orientation vector n: [a:x, b:y, c:z], h: height
         
         if not self.invert:
             #A1, A2, A3 are ball-joint coordinates, A2 is the vertex on plane y=0
@@ -173,7 +165,6 @@ class RobotKinematics:
     def solve_inverse_kinematics_spherical(self, theta, phi, h): #psi = azimuthal angle, theta = polar angle
 
         #conversion
-        self._h = h
         self.max_theta(h)
 
         theta = min(theta, self.maxtheta)
@@ -219,35 +210,4 @@ class RobotKinematics:
             else: theta_high = theta_mid
 
         self.maxtheta = max(0, math.degrees(round(theta_low, 4)) - 0.5)
-
-    @property
-    def theta_max(self):
-        self.max_theta(self._h)
         return self.maxtheta
-
-    @property
-    def theta(self):
-        return self._theta
-
-    @theta.setter
-    def theta(self, value):
-        self.max_theta(self._h)
-        self._theta = min(value, self.maxtheta)
-
-    @property
-    def phi(self):
-        return self._phi
-
-    @phi.setter
-    def phi(self, value):
-        self._phi = value % 360
-    
-    @property
-    def h(self):
-        return self._h
-
-    @h.setter
-    def h(self, value):
-        self._h = min(max(value, self.minh), self.maxh)
-        self.max_theta(self._h)
-        self.theta = self._theta

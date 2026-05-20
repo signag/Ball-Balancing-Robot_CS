@@ -53,6 +53,9 @@ latest_frame = None
 latest_image = None
 frame_lock = threading.Lock()
 image_lock = threading.Lock()
+thread_lock = threading.Lock()
+shutdown = False
+stop_capture = False
 
 class BallBalancingRobot:
     def __init__(self):
@@ -113,17 +116,26 @@ class BallBalancingRobot:
         self.robot = RobotKinematics(lp=self.configuration["LP"], l1=self.configuration["L1"], l2=self.configuration["L2"], lb=self.configuration["LB"], invert=self.configuration["INVERT"])
         self.controller = RobotController(self.robot, calibration=self.calibration)
         self.cam = Camera(self.cam_parameters["resolution"], self.cam_parameters["format"])
+
+        self._h = (self.robot.maxh + self.robot.minh) / 2
+        self._theta = 0.0
+        self._theta_max = self.robot.max_theta(self._h)
+        self._phi = 0.0
+        self._theta_rad = math.radians(self._theta)
+        self._phi_rad   = math.radians(self._phi)
+
         self.pid = PIDcontroller(
             self.pid_parameters["kp"],
             self.pid_parameters["ki"],
             self.pid_parameters["kd"],
             self.pid_parameters["alpha"],
             self.pid_parameters["beta"],
-            max_theta=self.robot.theta_max,
+            max_theta=self._theta_max,
             conversion="tanh"
         )
+
         try:
-            self.robot.solve_inverse_kinematics_vector(self.robot.alpha, self.robot.beta, self.robot.gamma, self.robot.h)
+            self.robot.solve_inverse_kinematics_vector(self.x, self.y, self.z, self.h)
             self.controller.set_motor_angles(
                 math.degrees(math.pi*0.5 - self.robot.theta1), 
                 math.degrees(math.pi*0.5 - self.robot.theta2), 
@@ -131,6 +143,55 @@ class BallBalancingRobot:
             )       
         except Exception as e:
             logger.error("Error during robot initialization: %s", e)
+
+    @property
+    def theta_max(self):
+        return self._theta_max
+
+    @property
+    def theta(self):
+        return self._theta
+
+    @theta.setter
+    def theta(self, value):
+        self._theta = min(value, self.theta_max)
+        self._theta_rad = math.radians(self._theta)
+
+    @property
+    def phi(self):
+        return self._phi
+
+    @phi.setter
+    def phi(self, value):
+        self._phi = value % 360
+        self._phi_rad   = math.radians(self._phi)
+
+    @property
+    def h(self):
+        return self._h
+
+    @h.setter
+    def h(self, value):
+        self._h = min(max(value, self.robot.minh), self.robot.maxh)
+        self._theta_max = self.robot.max_theta(self._h)
+        self.pid.max_theta = self._theta_max
+        if self._theta > self._theta_max:
+            self._theta = self._theta_max
+
+    @property
+    def x(self):
+        self._x = math.sin(self._theta_rad) * math.cos(self._phi_rad)
+        return self._x
+
+    @property
+    def y(self):
+        self._y = math.sin(self._theta_rad) * math.sin(self._phi_rad)
+        return self._y
+
+    @property
+    def z(self):
+        self._z = math.cos(self._theta_rad)
+        return self._z
 
     def set_mode(self, params, response):
         """Set the robot's mode.
@@ -148,8 +209,25 @@ class BallBalancingRobot:
         logger.debug("Resetting BallBalancingRobot to default state")
         self.robot = RobotKinematics(lp=self.configuration["LP"], l1=self.configuration["L1"], l2=self.configuration["L2"], lb=self.configuration["LB"], invert=self.configuration["INVERT"])
         self.controller = RobotController(self.robot, calibration=self.calibration)
+        self._h = (self.robot.maxh + self.robot.minh) / 2
+        self._theta = 0.0
+        self._theta_max = self.robot.max_theta(self._h)
+        self._phi = 0.0
+        self._theta_rad = math.radians(self._theta)
+        self._phi_rad   = math.radians(self._phi)
+
+        self.pid = PIDcontroller(
+            self.pid_parameters["kp"],
+            self.pid_parameters["ki"],
+            self.pid_parameters["kd"],
+            self.pid_parameters["alpha"],
+            self.pid_parameters["beta"],
+            max_theta=self._theta_max,
+            conversion="tanh"
+        )
+
         try:
-            self.robot.solve_inverse_kinematics_vector(self.robot.alpha, self.robot.beta, self.robot.gamma, self.robot.h)
+            self.robot.solve_inverse_kinematics_vector(self.x, self.y, self.z, self.h)
             self.controller.set_motor_angles(
                 math.degrees(math.pi*0.5 - self.robot.theta1), 
                 math.degrees(math.pi*0.5 - self.robot.theta2), 
@@ -157,8 +235,7 @@ class BallBalancingRobot:
             )       
         except Exception as e:
             logger.error("Error during robot initialization: %s", e)
-            response["status"] = "error"
-            response["message"] = str(e)
+
         response["status"] = "success"
         response["message"] = ""
         response["state"] = self.state
@@ -180,17 +257,12 @@ class BallBalancingRobot:
         phi = params.get("phi")
         h = params.get("h")
         logger.debug("Processing update with theta: %s, phi: %s, h: %s", theta, phi, h)
-        self.robot.theta = float(theta)
-        self.robot.phi = float(phi)
-        self.robot.h = float(h)
+        self.h = float(h)
+        self.theta = float(theta)
+        self.phi = float(phi)
 
-        theta_rad = math.radians(self.robot.theta)
-        phi_rad   = math.radians(self.robot.phi)
-        self.robot.alpha = math.sin(theta_rad) * math.cos(phi_rad)
-        self.robot.beta  = math.sin(theta_rad) * math.sin(phi_rad)
-        self.robot.gamma = math.cos(theta_rad)
         try:
-            self.robot.solve_inverse_kinematics_vector(self.robot.alpha, self.robot.beta, self.robot.gamma, self.robot.h)
+            self.robot.solve_inverse_kinematics_vector(self.x, self.y, self.z, self.h)
             self.controller.set_motor_angles(
                 math.degrees(math.pi*0.5 - self.robot.theta1), 
                 math.degrees(math.pi*0.5 - self.robot.theta2), 
@@ -212,16 +284,16 @@ class BallBalancingRobot:
         """
         result = {
             "mode": self.mode,
-            "theta": self.robot.theta,
-            "phi": self.robot.phi,
-            "h": self.robot.h,
-            "alpha": math.degrees(self.robot.alpha),
-            "beta": math.degrees(self.robot.beta),
-            "gamma": math.degrees(self.robot.gamma),
+            "theta": self.theta,
+            "phi": self.phi,
+            "h": self.h,
+            "x": self.x,
+            "y": self.y,
+            "z": self.z,
             "theta1": math.degrees(self.robot.theta1),
             "theta2": math.degrees(self.robot.theta2),
             "theta3": math.degrees(self.robot.theta3),
-            "theta_max": self.robot.theta_max,
+            "theta_max": self.theta_max,
             "theta1_offset": self.calibration["theta1_offset"],
             "theta2_offset": self.calibration["theta2_offset"],
             "theta3_offset": self.calibration["theta3_offset"]
@@ -299,6 +371,9 @@ def on_message(client, userdata, msg):
 
 def shutdown(sig, frame):
     logger.debug("Shutting down...")
+    global shutdown
+    with thread_lock:
+        shutdown = True
     client.disconnect()   # 👈 stops loop_forever
     sys.exit(0)
 
@@ -333,18 +408,29 @@ def start_flask():
 x, y = 100, 75
 
 def capture(cam):
-
+    global shutdown
+    global stop_capture
     global latest_frame
-    while True:
+    running = True
+    while running == True:
         frame = cam.take_picture()
         with frame_lock:
             latest_frame = frame 
+        with thread_lock:
+            if shutdown == True:
+                running = False
+            if stop_capture == True:
+                running = False
+    # Stop the camera
+    cam.terminate()
 
 def process(rob:BallBalancingRobot):
+    global shutdown
     cam = rob.cam
     hz = 50
     global latest_frame, latest_image, x, y
-    while True:
+    running = True
+    while running == True:
         with frame_lock:
             if latest_frame is None:
                 continue 
@@ -357,6 +443,9 @@ def process(rob:BallBalancingRobot):
             latest_image = cam.draw_position(frame_copy, (x_t, y_t), (x, y))
         if rob.mode == "auto":
             update_robot_pos(rob.controller, rob.robot, rob.pid, x_t, y_t, x, y)
+        with thread_lock:
+            if shutdown == True:
+                running = False
         elapsed = time.perf_counter() - loop_start
         sleep_time = (1 / hz) - elapsed
         if sleep_time > 0:
@@ -372,10 +461,15 @@ def update_robot_pos(robotcontroller, robotkinematics, pidcontroller, x_t, y_t, 
 
 def pid_loop():
     hz = 30  # PID frequency
-    while running:
+    global shutdown
+    running = True
+    while running == True:
         loop_start = time.perf_counter()
         x_t, y_t = (100, 75)  # Target position
         update_robot_pos(robot, model, PID, x_t, y_t, x, y)
+        with thread_lock:
+            if shutdown == True:
+                running = False
         elapsed = time.perf_counter() - loop_start
         sleep_time = (1 / hz) - elapsed
         if sleep_time > 0:

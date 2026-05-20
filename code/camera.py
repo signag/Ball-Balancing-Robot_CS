@@ -4,6 +4,7 @@ from picamera2 import Picamera2, Preview
 import numpy as np
 from collections import deque
 import threading
+import gc
 
 class Camera:
     #1640, 1232
@@ -49,7 +50,18 @@ class Camera:
 
     def terminate(self):
         self.picam2.stop()
-        self.picam2.close()
+        cnt = 0
+        while self.picam2.started == True:
+            time.sleep(0.01)
+            cnt += 1
+            if cnt > 100:
+                logger.warning("Camera did not stop after 1 second, forcing shutdown")
+                break
+        # Close camera
+        if self.picam2.is_open == True:
+            self.picam2.close()
+        # garbage collection
+        gc.collect()
         cv2.destroyAllWindows()
 
     def coordinate(self, image):
