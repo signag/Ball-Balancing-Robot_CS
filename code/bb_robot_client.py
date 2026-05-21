@@ -121,6 +121,26 @@ def handle_reset_request():
     client.publish("robot/request", json.dumps(request))
     logger.debug("Published reset request to MQTT: %s", request)
 
+@socketio.on("calibrate")
+def handle_calibrate(data):
+    request = {
+        "method": "calibrate",
+        "params": {
+            "servo": data.get("servo"),
+            "offset": data.get("offset")
+        }
+    }
+    client.publish("robot/request", json.dumps(request))
+    logger.debug("Published calibrate request to MQTT: %s", request)
+
+@socketio.on("save_calibration")
+def handle_save_calibration():
+    request = {
+        "method": "save_calibration"
+    }
+    client.publish("robot/request", json.dumps(request))
+    logger.debug("Published save calibration request to MQTT: %s", request)
+
 @socketio.on("set_mode")
 def handle_set_mode(data):
     request = {

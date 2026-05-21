@@ -193,6 +193,33 @@ class BallBalancingRobot:
         self._z = math.cos(self._theta_rad)
         return self._z
 
+    def set_orientation(self, theta:float, phi:float, h:float) -> bool:
+        """Set the orientation of the robot
+
+        Args:
+            theta (float): angle between z-axis of surface normal
+            phi (float): azimuth angle between x-axis of surface normal
+            h (float): height of center of upper plane
+
+        Returns:
+            bool: True if orientation was set successfully, False otherwise
+        """
+        self.theta = theta
+        self.phi = phi
+        self.h = h
+        success = True
+        try:
+            self.robot.solve_inverse_kinematics_vector(self.x, self.y, self.z, self.h)
+            self.controller.set_motor_angles(
+                math.degrees(math.pi*0.5 - self.robot.theta1), 
+                math.degrees(math.pi*0.5 - self.robot.theta2), 
+                math.degrees(math.pi*0.5 - self.robot.theta3)
+            )       
+        except Exception as e:
+            logger.error("Error during robot initialization: %s", e)
+            success = False
+        return success
+
     def set_mode(self, params, response):
         """Set the robot's mode.
         """
@@ -253,29 +280,83 @@ class BallBalancingRobot:
         """
         logger.debug("BallBalancingRobot.update - params= %s", params)
 
-        theta = params.get("theta")
-        phi = params.get("phi")
-        h = params.get("h")
+        theta = float(params.get("theta"))
+        phi = float(params.get("phi"))
+        h = float(params.get("h"))
         logger.debug("Processing update with theta: %s, phi: %s, h: %s", theta, phi, h)
-        self.h = float(h)
-        self.theta = float(theta)
-        self.phi = float(phi)
 
-        try:
-            self.robot.solve_inverse_kinematics_vector(self.x, self.y, self.z, self.h)
-            self.controller.set_motor_angles(
-                math.degrees(math.pi*0.5 - self.robot.theta1), 
-                math.degrees(math.pi*0.5 - self.robot.theta2), 
-                math.degrees(math.pi*0.5 - self.robot.theta3)
-            )       
-            logger.debug("Update processed successfully")
-        except Exception as e:
-            logger.error("Error during update processing: %s", e)
+        if self.set_orientation(theta, phi, h) == True:
+            response["status"] = "success"
+            response["message"] = ""
+            response["state"] = self.state
+        else:
             response["status"] = "error"
-            response["message"] = str(e)
+            response["message"] = ""
+        return response
+
+    def calibrate(self, params, response) -> dict:
+        """Calibrate the robot by setting the specified servo offset.
+
+        Args:
+            params (dict): A dictionary containing the servo to calibrate and the offset value.
+            response (dict): A dictionary to be updated with the calibration result.
+
+        Returns:
+            dict: The updated response dictionary with calibration status and message.
+        """
+        logger.debug("BallBalancingRobot.calibrate - params= %s", params)
+
+        servo = int(params.get("servo"))
+        offset = float(params.get("offset"))
+
         response["status"] = "success"
-        response["message"] = ""
-        response["state"] = self.state
+        response["message"] = f"Calibrated {servo} with offset {offset}"
+
+        if servo == 1:
+            self.calibration["theta1_offset"] = offset
+        elif servo == 2:
+            self.calibration["theta2_offset"] = offset
+        elif servo == 3:
+            self.calibration["theta3_offset"] = offset
+        else:
+            response["status"] = "error"
+            response["message"] = f"Invalid servo: {servo}"
+
+        self.controller.calibrate(self.calibration)
+        self.set_orientation(0.0, 0.0, self.h)
+
+        return response
+
+    def save_calibration(self, response) -> dict:
+        """Save the current calibration parameters to the configuration file.
+
+        Args:
+            response (dict): A dictionary to be updated with the save result.
+
+        Returns:
+            dict: The updated response dictionary with save status and message.
+        """
+        logger.debug("Saving calibration parameters to file")
+        config_path = Path(__file__).parent / ROBOT_CONFIG_FILE
+        try:
+            if config_path.is_file():
+                with open(config_path, "r") as f:
+                    robot_config = json.load(f)
+            else:
+                robot_config = {}
+
+            robot_config["calibration"] = self.calibration
+
+            with open(config_path, "w") as f:
+                json.dump(robot_config, f, indent=4)
+
+            logger.debug("Calibration parameters saved successfully")
+            response["status"] = "success"
+            response["message"] = "Calibration parameters saved successfully"
+        except Exception as e:
+            logger.error("Error saving calibration parameters: %s", e)
+            response["status"] = "error"
+            response["message"] = f"Error saving calibration parameters: {e}"
         return response
 
     @property
@@ -365,6 +446,13 @@ def on_message(client, userdata, msg):
         response = bb_robot.reset(response)
     if method == "set_mode":
         response = bb_robot.set_mode(params, response)
+    if method == "calibrate":
+        response = bb_robot.calibrate(params, response)
+        response["state"] = bb_robot.state
+    if method == "save_calibration":
+        response = bb_robot.save_calibration(response)
+        bb_robot.mode = "manual"
+        response["state"] = bb_robot.state
     
     client.publish("robot/response", json.dumps(response))
     logger.debug("Sent response: %s", response)

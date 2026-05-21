@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <title>3RRS Robot Simulator - Web</title>
@@ -10,11 +11,13 @@
       height: 100vh;
       font-family: Arial, sans-serif;
     }
+
     /* Left panel for 3D view */
     #left-panel {
       flex: 3;
       background: #222;
     }
+
     /* Right panel for controls */
     #right-panel {
       flex: 1;
@@ -22,29 +25,36 @@
       overflow-y: auto;
       background: #f0f0f0;
     }
+
     .group-box {
       border: 1px solid #aaa;
       margin-bottom: 10px;
       padding: 10px;
     }
+
     .group-box h3 {
       margin-top: 0;
     }
+
     .control-row {
       margin-bottom: 5px;
     }
+
     label {
       display: inline-block;
       width: 50px;
     }
+
     button {
       margin-right: 5px;
     }
+
     input[type="number"] {
       width: 70px;
     }
   </style>
 </head>
+
 <body>
   <div id="left-panel">
     <img src="http://raspi11:5100/video_feed" width="100%">
@@ -61,16 +71,17 @@
             <option value="auto">Auto</option>
             <option value="calibration">Calibration</option>
           </select>
-        </span></div>
+        </span>
+      </div>
     </div>
 
     <!-- Robot Params -->
     <div class="group-box">
       <h3>Robot Parameters</h3>
-      <div class="control-row"><label>lp:</label>   <span id="robot_lp">0</span></div>
-      <div class="control-row"><label>l1:</label>   <span id="robot_l1">0</span></div>
-      <div class="control-row"><label>l2:</label>   <span id="robot_l2">0</span></div>
-      <div class="control-row"><label>lb:</label>   <span id="robot_lb">0</span></div>
+      <div class="control-row"><label>lp:</label> <span id="robot_lp">0</span></div>
+      <div class="control-row"><label>l1:</label> <span id="robot_l1">0</span></div>
+      <div class="control-row"><label>l2:</label> <span id="robot_l2">0</span></div>
+      <div class="control-row"><label>lb:</label> <span id="robot_lb">0</span></div>
       <div class="control-row"><label>minh:</label> <span id="robot_minh">0</span></div>
       <div class="control-row"><label>maxh:</label> <span id="robot_maxh">0</span></div>
       <div class="control-row"><label>θ max:</label> <span id="robot_theta_ubound">0</span></div>
@@ -79,9 +90,29 @@
     <!-- Robot Calibration -->
     <div class="group-box">
       <h3>Robot Calibration</h3>
-      <div class="control-row"><label>θ₁ off:</label> <span id="robot_theta1_offset">0</span></div>
-      <div class="control-row"><label>θ₂ off:</label> <span id="robot_theta2_offset">0</span></div>
-      <div class="control-row"><label>θ₃ off:</label> <span id="robot_theta3_offset">0</span></div>
+      <div id="calibration_off" style="display:block">
+        <div class="control-row"><label>θ₁ off:</label> <span id="robot_theta1_offset">0</span></div>
+        <div class="control-row"><label>θ₂ off:</label> <span id="robot_theta2_offset">0</span></div>
+        <div class="control-row"><label>θ₃ off:</label> <span id="robot_theta3_offset">0</span></div>
+      </div>
+      <div id="calibration_on" style="display:none">
+        <div class="control-row">
+          <label>θ₁ off:</label> 
+          <input type="number" id="robot_theta1_offset_input" min="0" max="90" step="0.01" value="0"
+            onchange="calib_s1(this.value)">
+        </div>
+        <div class="control-row">
+          <label>θ₂ off:</label>
+          <input type="number" id="robot_theta2_offset_input" min="0" max="90" step="0.01" value="0"
+            onchange="calib_s2(this.value)">
+        </div>
+        <div class="control-row">
+          <label>θ₃ off:</label>
+          <input type="number" id="robot_theta3_offset_input" min="0" max="90" step="0.01" value="0"
+            onchange="calib_s3(this.value)">
+          <button id="calib_save_button" onclick="confirm_save_calibration()">Save</button>
+        </div>
+      </div>
     </div>
 
     <!-- Input Sliders -->
@@ -91,63 +122,26 @@
       <div class="control-row">
         <label>θ:</label>
         <!-- slider 0..2000 => 0..20.00 degrees -->
-        <input 
-          type="range" 
-          id="slider_theta" 
-          min="0" 
-          max="2000" 
-          step="1"
-          value="0"
+        <input type="range" id="slider_theta" min="0" max="2000" step="1" value="0"
           onchange="set_theta('slider', this.value)">
-        <input 
-          type="number" 
-          id="spin_theta" 
-          min="0" 
-          max="20" 
-          step="0.01" 
-          value="0"
+        <input type="number" id="spin_theta" min="0" max="20" step="0.01" value="0"
           onchange="set_theta('spin', this.value * 100)">
       </div>
       <!-- Phi -->
       <div class="control-row">
         <label>φ:</label>
         <!-- slider 0..36000 => 0..360.00 degrees -->
-        <input 
-          type="range" 
-          id="slider_phi" 
-          min="0" 
-          max="36000" 
-          step="1"
-          value="0"
+        <input type="range" id="slider_phi" min="0" max="36000" step="1" value="0"
           onchange="set_phi('slider', this.value)">
-        <input 
-          type="number" 
-          id="spin_phi" 
-          min="0" 
-          max="360" 
-          step="0.01" 
-          value="0" 
+        <input type="number" id="spin_phi" min="0" max="360" step="0.01" value="0"
           onchange="set_phi('spin', this.value * 100)">
       </div>
       <!-- h -->
       <div class="control-row">
         <label>h:</label>
         <!-- slider range is dynamic from server, but start with a wide range -->
-        <input 
-          type="range" 
-          id="slider_h" 
-          min="0" 
-          max="2000" 
-          step="1"
-          value="0"
-          onchange="set_h('slider', this.value)">
-        <input 
-          type="number" 
-          id="spin_h" 
-          min="0" 
-          max="20" 
-          step="0.01"
-          value="0"
+        <input type="range" id="slider_h" min="0" max="2000" step="1" value="0" onchange="set_h('slider', this.value)">
+        <input type="number" id="spin_h" min="0" max="20" step="0.01" value="0"
           onchange="set_h('spin', this.value * 100)">
       </div>
       <!-- Buttons -->
@@ -206,6 +200,30 @@
   <script>
     const socket = io();
 
+    function calib_s1(value) {
+      let offset = parseFloat(value);
+      // Send new offset to server
+      socket.emit("calibrate", { servo: 1, offset: offset });
+    }
+
+    function calib_s2(value) {
+      let offset = parseFloat(value);
+      // Send new offset to server
+      socket.emit("calibrate", { servo: 2, offset: offset });
+    }
+
+    function calib_s3(value) {
+      let offset = parseFloat(value);
+      // Send new offset to server
+      socket.emit("calibrate", { servo: 3, offset: offset });
+    }
+
+    function confirm_save_calibration() {
+      if (confirm("Do you want to save calibration and switch to manual mode?")) {
+        socket.emit("save_calibration");
+      }
+    }
+
     function set_theta(origin, value) {
       let theta = parseFloat(value) / 100;
       if (origin === 'slider') {
@@ -214,7 +232,7 @@
         document.getElementById('slider_theta').value = Math.round(theta * 100);
       }
       // Send new theta to server
-      socket.emit("update_robot", {theta: theta, phi: parseFloat(document.getElementById('spin_phi').value), h: parseFloat(document.getElementById('spin_h').value) });
+      socket.emit("update_robot", { theta: theta, phi: parseFloat(document.getElementById('spin_phi').value), h: parseFloat(document.getElementById('spin_h').value) });
     }
 
     function set_phi(origin, value) {
@@ -225,7 +243,7 @@
         document.getElementById('slider_phi').value = Math.round(phi * 100);
       }
       // Send new phi to server
-      socket.emit("update_robot", {theta: parseFloat(document.getElementById('spin_theta').value), phi: phi, h: parseFloat(document.getElementById('spin_h').value) });
+      socket.emit("update_robot", { theta: parseFloat(document.getElementById('spin_theta').value), phi: phi, h: parseFloat(document.getElementById('spin_h').value) });
     }
 
     function set_h(origin, value) {
@@ -236,7 +254,7 @@
         document.getElementById('slider_h').value = Math.round(h * 100);
       }
       // Send new h to server
-      socket.emit("update_robot", {theta: parseFloat(document.getElementById('spin_theta').value), phi: parseFloat(document.getElementById('spin_phi').value), h: h });
+      socket.emit("update_robot", { theta: parseFloat(document.getElementById('spin_theta').value), phi: parseFloat(document.getElementById('spin_phi').value), h: h });
     }
 
     function confirm_reset() {
@@ -253,10 +271,10 @@
     }
 
     socket.on("connect", () => {
-        console.log("Connected");
+      console.log("Connected");
 
-        // 🔥 Request initial data
-        socket.emit("request_initial_data");
+      // 🔥 Request initial data
+      socket.emit("request_initial_data");
     });
 
     socket.on("state_update", (data) => {
@@ -279,6 +297,16 @@
       document.getElementById("robot_theta1_offset").textContent = data.theta1_offset.toFixed(2);
       document.getElementById("robot_theta2_offset").textContent = data.theta2_offset.toFixed(2);
       document.getElementById("robot_theta3_offset").textContent = data.theta3_offset.toFixed(2);
+      document.getElementById("robot_theta1_offset_input").value = data.theta1_offset.toFixed(2);
+      document.getElementById("robot_theta2_offset_input").value = data.theta2_offset.toFixed(2);
+      document.getElementById("robot_theta3_offset_input").value = data.theta3_offset.toFixed(2);
+      if (data.mode === "calibration") {
+        document.getElementById("calibration_off").style.display = "none";
+        document.getElementById("calibration_on").style.display = "block";
+      } else {
+        document.getElementById("calibration_off").style.display = "block";
+        document.getElementById("calibration_on").style.display = "none";
+      }
     });
 
     socket.on("params_update", (data) => {
@@ -297,5 +325,5 @@
     });
   </script>
 </body>
-</html>
 
+</html>

@@ -35,13 +35,13 @@ class RobotController:
     def initialize(self):
       
         logger.debug("RobotController.initialize - Initializing ...")
-        self.set_motor_angles(54, 54, 54)
-        self.interpolate_time([19, 19, 19], duration=0.25)
-        time.sleep(1)
-        self.interpolate_time([90, 90, 90], duration=0.25)
-        time.sleep(1)
-        self.Goto_time_spherical(0, 0, 8.26, t=0.25)
-        time.sleep(1)
+        #self.set_motor_angles(54, 54, 54)
+        #self.interpolate_time([19, 19, 19], duration=0.25)
+        #time.sleep(1)
+        #self.interpolate_time([90, 90, 90], duration=0.25)
+        #time.sleep(1)
+        #self.Goto_time_spherical(0, 0, 8.26, t=0.25)
+        #time.sleep(1)
         logger.debug("RobotController.initialize - Initialized")
     
     def set_motor_angles(self, theta1, theta2, theta3):
@@ -148,6 +148,9 @@ class RobotController:
         )
     '''
 
+    def calibrate(self, calibration:dict) ->None:
+        self.calibration = calibration or {"theta1_offset": 0.0, "theta2_offset": 0.0, "theta3_offset": 0.0}
+        
 
     def Dance1(self):
  

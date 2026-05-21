@@ -4,9 +4,16 @@
     // Weitere Informationen finden Sie unter https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-        
+
         {
-            "name": "Python-Debugger: Aktuelle Datei",
+            "name": "Server",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "code/bb_robot_server.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Aktuelle Datei",
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
