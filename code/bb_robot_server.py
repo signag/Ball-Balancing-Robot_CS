@@ -446,6 +446,7 @@ def on_message(client, userdata, msg):
         response = bb_robot.reset(response)
     if method == "set_mode":
         response = bb_robot.set_mode(params, response)
+        response["state"] = bb_robot.state
     if method == "calibrate":
         response = bb_robot.calibrate(params, response)
         response["state"] = bb_robot.state
@@ -530,7 +531,7 @@ def process(rob:BallBalancingRobot):
         with image_lock:
             latest_image = cam.draw_position(frame_copy, (x_t, y_t), (x, y))
         if rob.mode == "auto":
-            update_robot_pos(rob.controller, rob.robot, rob.pid, x_t, y_t, x, y)
+            update_robot_pos(rob, x_t, y_t, x, y)
         with thread_lock:
             if shutdown == True:
                 running = False
@@ -539,22 +540,27 @@ def process(rob:BallBalancingRobot):
         if sleep_time > 0:
             time.sleep(sleep_time)
 
-def update_robot_pos(robotcontroller, robotkinematics, pidcontroller, x_t, y_t, x, y): #x_t, y_t: target position, x, y: current position, t: duration 
+def update_robot_pos(rob:BallBalancingRobot, x_t, y_t, x, y): #x_t, y_t: target position, x, y: current position, t: duration 
 
-    theta, phi = pidcontroller.pid((x_t, y_t), (x, y))
-    #print(theta, phi)
-    #robotcontroller.Goto_time_spherical(theta, phi, 8.26, 0.02)
-    robotcontroller.Goto_N_time_spherical(theta, phi, 8.26)
+    robotcontroller = rob.controller
+    robotkinematics = rob.robot
+    pidcontroller = rob.pid
+
+    rob.theta, rob.phi = pidcontroller.pid((x_t, y_t), (x, y))
+    rob.h = 8.26
+    #print(rob.theta, rob.phi)
+    #robotcontroller.Goto_time_spherical(rob.theta, rob.phi, rob.h, 0.02)
+    robotcontroller.Goto_N_time_spherical(rob.theta, rob.phi, rob.h)
 
 
-def pid_loop():
+def pid_loop(rob:BallBalancingRobot):
     hz = 30  # PID frequency
     global shutdown
     running = True
     while running == True:
         loop_start = time.perf_counter()
         x_t, y_t = (100, 75)  # Target position
-        update_robot_pos(robot, model, PID, x_t, y_t, x, y)
+        update_robot_pos(rob, x_t, y_t, x, y)
         with thread_lock:
             if shutdown == True:
                 running = False
@@ -580,7 +586,7 @@ if __name__ == "__main__":
     threading.Thread(target=process, args=(bb_robot,), daemon=True).start()
     threading.Thread(target=start_flask, daemon=True).start()
     time.sleep(2)
-    #threading.Thread(target=pid_loop).start()
+    #threading.Thread(target=pid_loop, args=(bb_robot,), daemon=True).start()
 
     #
     # Start MQTT client loop
