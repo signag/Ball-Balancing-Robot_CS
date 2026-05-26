@@ -29,6 +29,9 @@ filehandler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s in %(nam
 streamhandler = logging.StreamHandler()
 streamhandler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s in %(name)s: %(message)s'))
 
+#Initialize Ball Position
+x, y = 100, 75
+
 for logger in (
     logging.getLogger("bb_robot_server"),
     logging.getLogger("robotKinematics"),
@@ -42,8 +45,9 @@ for logger in (
 
 # >>>>> Explicitely set specific log levels.
 logging.getLogger("bb_robot_server").setLevel(logging.DEBUG)
-logging.getLogger("robotKinematics").setLevel(logging.DEBUG)
-logging.getLogger("controller").setLevel(logging.DEBUG)
+# logging.getLogger("robotKinematics").setLevel(logging.DEBUG)
+# logging.getLogger("controller").setLevel(logging.DEBUG)
+logging.getLogger("camera").setLevel(logging.DEBUG)
 
 logger = logging.getLogger("bb_robot_server")
 
@@ -65,10 +69,64 @@ class BallBalancingRobot:
 
         # Load robot configuration from file if it exists
         self.mode = "manual"
-        self.configuration = {"LP": 7.125, "L1": 6.20, "L2": 4.50, "LB": 4.00, "INVERT": False}
-        self.calibration = {"theta1_offset": 0.0, "theta2_offset": 0.0, "theta3_offset": 0.0}
-        self.pid_parameters = {"kp": 0.0063, "ki": 0.00005, "kd": 0.006025, "alpha": 0.65, "beta": 0.3}
-        self.cam_parameters = {"resolution": (1640, 1232), "format": "RGB888"}
+        self.configuration = {
+            "LP": 7.125,
+            "L1": 6.20,
+            "L2": 4.50,
+            "LB": 4.00,
+            "INVERT": False,
+            "h_work": 9.53
+        }
+        self.calibration = {
+            "theta1_offset": 0.0,
+            "theta2_offset": 0.0,
+            "theta3_offset": 0.0
+        }
+        self.pid_parameters = {
+            "kp": 0.0063,
+            "ki": 0.00005,
+            "kd": 0.006025,
+            "alpha": 0.65,
+            "beta": 0.3
+        }
+        self.cam_parameters = {
+            "resolution": (1640, 1232),
+            "resolution_work": (200, 150),
+            "center": (100, 75),
+            "detection_radius": 70, 
+            "format": "RGB888"
+        }
+        
+        self.read_config()
+
+        self.robot = RobotKinematics(lp=self.configuration["LP"], l1=self.configuration["L1"], l2=self.configuration["L2"], lb=self.configuration["LB"], invert=self.configuration["INVERT"])
+        self.controller = RobotController(self.robot, calibration=self.calibration)
+        self.cam = Camera(self.cam_parameters)
+
+        self._h = (self.robot.maxh + self.robot.minh) / 2
+        self._theta = 0.0
+        self._theta_max = self.robot.max_theta(self._h)
+        self._phi = 0.0
+        self._theta_rad = math.radians(self._theta)
+        self._phi_rad   = math.radians(self._phi)
+
+        self.pid = PIDcontroller(
+            self.pid_parameters["kp"],
+            self.pid_parameters["ki"],
+            self.pid_parameters["kd"],
+            self.pid_parameters["alpha"],
+            self.pid_parameters["beta"],
+            max_theta=self._theta_max,
+            conversion="tanh"
+        )
+
+        self.set_orientation(0.0, 0.0, self.robot.minh)
+        time.sleep(0.5)
+        self.set_orientation(0.0, 0.0, self.robot.maxh)
+        time.sleep(0.5)
+        self.set_orientation(0.0, 0.0, self.configuration["h_work"])
+
+    def read_config(self):
         fp = Path(__file__).parent / ROBOT_CONFIG_FILE
         if fp.is_file():
             logger.debug("Loading robot configuration from file: %s", fp)
@@ -83,7 +141,8 @@ class BallBalancingRobot:
                         "L1": configuration.get("L1", self.configuration["L1"]),
                         "L2": configuration.get("L2", self.configuration["L2"]),
                         "LB": configuration.get("LB", self.configuration["LB"]),
-                        "INVERT": configuration.get("INVERT", self.configuration["INVERT"])
+                        "INVERT": configuration.get("INVERT", self.configuration["INVERT"]),
+                        "h_work": configuration.get("h_work", self.configuration["h_work"])
                     })
                 logger.debug("Loaded robot configuration: %s", self.configuration)
                 if "calibration" in robot_config:
@@ -108,41 +167,19 @@ class BallBalancingRobot:
                 if "cam_parameters" in robot_config:
                     cam_parameters = robot_config["cam_parameters"]
                     self.cam_parameters.update({
-                        "resolution": tuple(cam_parameters.get("resolution", self.cam_parameters["resolution"])),
+                        "resolution": tuple(
+                            cam_parameters.get("resolution", self.cam_parameters["resolution"])
+                        ),
+                        "resolution_work": tuple(
+                            cam_parameters.get("resolution_work", self.cam_parameters["resolution_work"])
+                        ),
+                        "center": tuple(
+                            cam_parameters.get("center", self.cam_parameters["center"])
+                        ),
+                        "detection_radius": cam_parameters.get("detection_radius", self.cam_parameters["detection_radius"]),
                         "format": cam_parameters.get("format", self.cam_parameters["format"])
                     })
                     logger.debug("Loaded camera parameters: %s", self.cam_parameters)
-
-        self.robot = RobotKinematics(lp=self.configuration["LP"], l1=self.configuration["L1"], l2=self.configuration["L2"], lb=self.configuration["LB"], invert=self.configuration["INVERT"])
-        self.controller = RobotController(self.robot, calibration=self.calibration)
-        self.cam = Camera(self.cam_parameters["resolution"], self.cam_parameters["format"])
-
-        self._h = (self.robot.maxh + self.robot.minh) / 2
-        self._theta = 0.0
-        self._theta_max = self.robot.max_theta(self._h)
-        self._phi = 0.0
-        self._theta_rad = math.radians(self._theta)
-        self._phi_rad   = math.radians(self._phi)
-
-        self.pid = PIDcontroller(
-            self.pid_parameters["kp"],
-            self.pid_parameters["ki"],
-            self.pid_parameters["kd"],
-            self.pid_parameters["alpha"],
-            self.pid_parameters["beta"],
-            max_theta=self._theta_max,
-            conversion="tanh"
-        )
-
-        try:
-            self.robot.solve_inverse_kinematics_vector(self.x, self.y, self.z, self.h)
-            self.controller.set_motor_angles(
-                math.degrees(math.pi*0.5 - self.robot.theta1), 
-                math.degrees(math.pi*0.5 - self.robot.theta2), 
-                math.degrees(math.pi*0.5 - self.robot.theta3)
-            )       
-        except Exception as e:
-            logger.error("Error during robot initialization: %s", e)
 
     @property
     def theta_max(self):
@@ -233,10 +270,13 @@ class BallBalancingRobot:
     def reset(self, response):
         """Reset the robot to its default state.
         """
+        global x, y
+        
         logger.debug("Resetting BallBalancingRobot to default state")
+        self.read_config()
         self.robot = RobotKinematics(lp=self.configuration["LP"], l1=self.configuration["L1"], l2=self.configuration["L2"], lb=self.configuration["LB"], invert=self.configuration["INVERT"])
         self.controller = RobotController(self.robot, calibration=self.calibration)
-        self._h = (self.robot.maxh + self.robot.minh) / 2
+        self._h = self.configuration["h_work"]
         self._theta = 0.0
         self._theta_max = self.robot.max_theta(self._h)
         self._phi = 0.0
@@ -253,15 +293,14 @@ class BallBalancingRobot:
             conversion="tanh"
         )
 
-        try:
-            self.robot.solve_inverse_kinematics_vector(self.x, self.y, self.z, self.h)
-            self.controller.set_motor_angles(
-                math.degrees(math.pi*0.5 - self.robot.theta1), 
-                math.degrees(math.pi*0.5 - self.robot.theta2), 
-                math.degrees(math.pi*0.5 - self.robot.theta3)
-            )       
-        except Exception as e:
-            logger.error("Error during robot initialization: %s", e)
+        self.set_orientation(0.0, 0.0, self.robot.minh)
+        time.sleep(0.5)
+        self.set_orientation(0.0, 0.0, self.robot.maxh)
+        time.sleep(0.5)
+        self.set_orientation(0.0, 0.0, self.configuration["h_work"])
+
+        #Initialize Ball Position
+        x, y = bb_robot.cam_parameters["center"]
 
         response["status"] = "success"
         response["message"] = ""
@@ -454,6 +493,9 @@ def on_message(client, userdata, msg):
         response = bb_robot.save_calibration(response)
         bb_robot.mode = "manual"
         response["state"] = bb_robot.state
+    if method == "simulate_pid":
+        response = simulate_pid(bb_robot, response)
+        response["state"] = bb_robot.state
     
     client.publish("robot/response", json.dumps(response))
     logger.debug("Sent response: %s", response)
@@ -493,9 +535,6 @@ def video_feed():
 def start_flask():
     app.run(host="0.0.0.0", port=5100, threaded=True)
 
-#Initialize Ball Position
-x, y = 100, 75
-
 def capture(cam):
     global shutdown
     global stop_capture
@@ -527,7 +566,7 @@ def process(rob:BallBalancingRobot):
         
         loop_start = time.perf_counter()
         x, y = cam.coordinate(frame_copy)  
-        x_t, y_t = (100, 75)  # Target position
+        x_t, y_t = rob.cam_parameters["center"]
         with image_lock:
             latest_image = cam.draw_position(frame_copy, (x_t, y_t), (x, y))
         if rob.mode == "auto":
@@ -540,6 +579,33 @@ def process(rob:BallBalancingRobot):
         if sleep_time > 0:
             time.sleep(sleep_time)
 
+def simulate_pid(rob:BallBalancingRobot, response:dict) -> dict:
+    """Return simulation result for current ball position
+
+    Returns:
+        dict: simulation result containing current ball position and resulting robot orientation
+    """
+    global latest_frame
+    with frame_lock:
+        if latest_frame is None:
+            response["status"] = "error: no frame available"
+            return response
+        frame_copy = latest_frame.copy()
+    x_t, y_t = rob.cam_parameters["center"]
+    x, y = rob.cam.coordinate(frame_copy)
+    theta, phi = rob.pid.pid((x_t, y_t), (x, y))
+    response["status"] = "success"
+    response["pid_simulation"] = {
+        "x_t": x_t,
+        "y_t": y_t,
+        "x": x,
+        "y": y,
+        "theta": theta,
+        "phi": phi,
+        }
+    return response
+
+
 def update_robot_pos(rob:BallBalancingRobot, x_t, y_t, x, y): #x_t, y_t: target position, x, y: current position, t: duration 
 
     robotcontroller = rob.controller
@@ -547,29 +613,10 @@ def update_robot_pos(rob:BallBalancingRobot, x_t, y_t, x, y): #x_t, y_t: target 
     pidcontroller = rob.pid
 
     rob.theta, rob.phi = pidcontroller.pid((x_t, y_t), (x, y))
-    rob.h = 8.26
+    rob.h = rob.configuration["h_work"]
     #print(rob.theta, rob.phi)
     #robotcontroller.Goto_time_spherical(rob.theta, rob.phi, rob.h, 0.02)
     robotcontroller.Goto_N_time_spherical(rob.theta, rob.phi, rob.h)
-
-
-def pid_loop(rob:BallBalancingRobot):
-    hz = 30  # PID frequency
-    global shutdown
-    running = True
-    while running == True:
-        loop_start = time.perf_counter()
-        x_t, y_t = (100, 75)  # Target position
-        update_robot_pos(rob, x_t, y_t, x, y)
-        with thread_lock:
-            if shutdown == True:
-                running = False
-        elapsed = time.perf_counter() - loop_start
-        sleep_time = (1 / hz) - elapsed
-        if sleep_time > 0:
-            #print(sleep_time)
-            time.sleep(sleep_time)
-
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, shutdown)
@@ -581,12 +628,14 @@ if __name__ == "__main__":
     #
     bb_robot = BallBalancingRobot()
 
+    #Initialize Ball Position
+    x, y = bb_robot.cam_parameters["center"]
+
     # Start threads
     threading.Thread(target=capture, args=(bb_robot.cam,), daemon=True).start()
     threading.Thread(target=process, args=(bb_robot,), daemon=True).start()
     threading.Thread(target=start_flask, daemon=True).start()
     time.sleep(2)
-    #threading.Thread(target=pid_loop, args=(bb_robot,), daemon=True).start()
 
     #
     # Start MQTT client loop

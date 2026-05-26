@@ -152,7 +152,7 @@
 
     <!-- Output -->
     <div class="group-box">
-      <h3>Output</h3>
+      <h3>Robot State</h3>
       <div class="control-row">
         <label>h:</label>
         <span id="label_h">0</span>
@@ -184,6 +184,30 @@
       <div class="control-row">
         <label>θ₃:</label>
         <span id="label_theta3">0</span>
+      </div>
+    </div>
+
+    <!-- PID -->
+    <div class="group-box">
+      <h3>PID</h3>
+      <div class="control-row">
+        <label>Target:</label>
+        <span id="target_x">0.00</span>
+        <span id="target_y">0.00</span>
+      </div>
+      <div class="control-row">
+        <label>Pos.:</label>
+        <span id="position_x">0.00</span>
+        <span id="position_y">0.00</span>
+      </div>
+      <div class="control-row">
+        <label>θ, φ:</label>
+        <span id="pid_theta">0.00</span>
+        <span id="pid_phi">0.00</span>
+      </div>
+      <!-- Buttons -->
+      <div class="control-row">
+        <button id="pid_simulate_button" onclick="simulate_pid()">Simulate</button>
       </div>
     </div>
   </div>
@@ -270,6 +294,10 @@
       }
     }
 
+    function simulate_pid() {
+        socket.emit("simulate_pid");
+    }
+
     socket.on("connect", () => {
       console.log("Connected");
 
@@ -307,6 +335,21 @@
         document.getElementById("calibration_off").style.display = "block";
         document.getElementById("calibration_on").style.display = "none";
       }
+      if (data.mode === "auto") {
+        document.getElementById("slider_theta").disabled = true;
+        document.getElementById("spin_theta").disabled = true;
+        document.getElementById("slider_phi").disabled = true;
+        document.getElementById("spin_phi").disabled = true;
+        document.getElementById("slider_h").disabled = true;
+        document.getElementById("spin_h").disabled = true;
+      } else {
+        document.getElementById("slider_theta").disabled = false;
+        document.getElementById("spin_theta").disabled = false;
+        document.getElementById("slider_phi").disabled = false;
+        document.getElementById("spin_phi").disabled = false;
+        document.getElementById("slider_h").disabled = false;
+        document.getElementById("spin_h").disabled = false;
+      }
     });
 
     socket.on("params_update", (data) => {
@@ -322,6 +365,16 @@
       document.getElementById("slider_h").max = (data.maxh * 100).toFixed();
       document.getElementById("spin_h").min = data.minh.toFixed(2);
       document.getElementById("spin_h").max = data.maxh.toFixed(2);
+    });
+
+    socket.on("pid_simulation_update", (data) => {
+      console.log("socket.on(pid_simulation_update) - data:", data);
+      document.getElementById("target_x").textContent = data.x_t.toFixed();
+      document.getElementById("target_y").textContent = data.y_t.toFixed();
+      document.getElementById("position_x").textContent = data.x.toFixed();
+      document.getElementById("position_y").textContent = data.y.toFixed();
+      document.getElementById("pid_theta").textContent = data.theta.toFixed(2);
+      document.getElementById("pid_phi").textContent = data.phi.toFixed(2);
     });
   </script>
 </body>

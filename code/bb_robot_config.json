@@ -5,7 +5,8 @@
         "L1": 7.5,
         "L2": 4.5,
         "LB": 5.56,
-        "INVERT": false
+        "INVERT": false,
+        "h_work": 9.53
     },
     "calibration": {
         "theta1_offset": 9.0,
@@ -19,11 +20,20 @@
         "alpha": 0.65,
         "beta": 0.3
     },
-    "camera_parameters": {
+    "cam_parameters": {
         "resolution": [
             1640,
             1232
         ],
+        "resolution_work": [
+            200,
+            150
+        ],
+        "center": [
+            99,
+            81
+        ],
+        "detection_radius": 50,
         "format": "RGB888"
     }
 }

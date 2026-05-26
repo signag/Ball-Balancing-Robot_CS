@@ -5,12 +5,25 @@ import numpy as np
 from collections import deque
 import threading
 import gc
+import logging
+
+logger = logging.getLogger(__name__)
 
 class Camera:
     #1640, 1232
-    def __init__(self, resolution=(1640, 1232), format="RGB888"):
+    def __init__(self, camera_parameters: dict):
+        logger.debug("Camera.__init__ - Initializing camera with camera_parameters: %s", camera_parameters)
+        self.camera_parameters = camera_parameters
         self.picam2 = Picamera2()
-        config = self.picam2.create_preview_configuration(main={"size": resolution, "format": format}, controls={"FrameDurationLimits": (8333, 8333)})
+        config = self.picam2.create_preview_configuration(
+            main={
+                "size": camera_parameters["resolution"],
+                "format": camera_parameters["format"]
+            }, 
+            controls={
+                "FrameDurationLimits": (8333, 8333)
+            }
+        )
         self.picam2.configure(config)
 
         self.lower_black = np.array([0, 0, 0])
@@ -18,14 +31,13 @@ class Camera:
         self.gray_threshold = 60
 
         self.queue = deque(maxlen=16)
-        self.queue.append((100, 75))  
+        self.queue.append(self.camera_parameters["center"])  
 
-        self.picam2.start()    
+        self.picam2.start()
 
     def take_picture(self):
         image = self.picam2.capture_array()
-        scale = 200.0 / image.shape[1]
-        frame_resized = cv2.resize(image, (200, int(image.shape[0] * scale)))
+        frame_resized = cv2.resize(image, self.camera_parameters["resolution_work"])
         return frame_resized
 
     def display(self, image, window_name="Camera Output"):
@@ -41,11 +53,19 @@ class Camera:
 
     def draw_position(self, image, center, pos):
         x0, y0 = center
+        cv2.line(image, (x0 - 10, y0), (x0 + 10, y0), (0, 255, 0), 2)
+        cv2.line(image, (x0, y0 - 10), (x0, y0 + 10), (0, 255, 0), 2)
+        cv2.circle(
+            image,
+            center=center,
+            radius=self.camera_parameters["detection_radius"],
+            color=(0, 255, 0),
+            thickness=2
+        )        
+
         x, y = pos
         cv2.line(image, (x - 10, y), (x + 10, y), (0, 0, 255), 2)
         cv2.line(image, (x, y - 10), (x, y + 10), (0, 0, 255), 2)
-        cv2.line(image, (x0 - 10, y0), (x0 + 10, y0), (0, 255, 0), 2)
-        cv2.line(image, (x0, y0 - 10), (x0, y0 + 10), (0, 255, 0), 2)
         return image
 
     def terminate(self):

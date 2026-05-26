@@ -63,6 +63,10 @@ def on_message(client, userdata, msg):
         logger.debug("Received robot state: %s", data["state"])
         state = data.get("state", {})
         update_robot_state(state)
+    if "pid_simulation" in data:
+        logger.debug("Received PID simulation data: %s", data["pid_simulation"])
+        pid_simulation = data.get("pid_simulation", {})
+        socketio.emit("pid_simulation_update", pid_simulation)
 
 client.on_connect = on_connect
 client.on_message = on_message
@@ -151,6 +155,14 @@ def handle_set_mode(data):
     }
     client.publish("robot/request", json.dumps(request))
     logger.debug("Published set mode request to MQTT: %s", request)
+
+@socketio.on("simulate_pid")
+def handle_simulate_pid():
+    request = {
+        "method": "simulate_pid"
+    }
+    client.publish("robot/request", json.dumps(request))
+    logger.debug("Published simulate PID request to MQTT: %s", request)
 
 if __name__ == "__main__":
     logger.debug("Starting ball balancing robot client")
