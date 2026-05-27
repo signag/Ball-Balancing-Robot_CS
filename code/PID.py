@@ -33,8 +33,13 @@ class PIDcontroller:
         dt = new_time - self.last_time if self.last_time is not None else 0.001
 
         #errors
-        err_x = current[0] - target[0]
-        err_y = current[1] - target[1]
+        err_x0 = current[0] - target[0]
+        err_y0 = current[1] - target[1]
+
+        # Rottate errors by 90 degrees to align with robot's coordinate system
+        err_x = - err_y0
+        err_y = err_x0
+
         self.sum_err_x += err_x * dt
         self.sum_err_y += err_y * dt
         d_err_x = (err_x - self.prev_err_x) / dt if dt > 0 else 0
@@ -48,6 +53,7 @@ class PIDcontroller:
         
         #Convert to spherical coordinates
         phi = math.degrees(math.atan2(filtered_y, filtered_x))
+        phi = phi + 180
         if phi < 0:
             phi += 360
         r = math.sqrt(filtered_x**2 + filtered_y**2)
@@ -63,5 +69,20 @@ class PIDcontroller:
         self.prev_out_y = filtered_y
         self.last_time = new_time
 
-        return theta, phi #in degrees
+        data = {
+            "time": new_time,
+            "dt": dt,
+            "target": target,
+            "current": current,
+            "err_abs": math.sqrt(err_x**2 + err_y**2),
+            "err": (err_x, err_y),
+            "err_i": (self.sum_err_x, self.sum_err_y),
+            "err_d": (d_err_x, d_err_y),
+            "pid": (pid_x, pid_y),
+            "pid_f": (filtered_x, filtered_y),
+            "theta": theta,
+            "phi": phi
+        }
+
+        return theta, phi, data
 

@@ -15,8 +15,8 @@
     },
     "pid_parameters": {
         "kp": 0.0063,
-        "ki": 5e-05,
-        "kd": 0.006025,
+        "ki": 0.0001,
+        "kd": 0.006,
         "alpha": 0.65,
         "beta": 0.3
     },
@@ -33,7 +33,7 @@
             99,
             81
         ],
-        "detection_radius": 50,
+        "detection_radius": 55,
         "format": "RGB888"
     }
 }

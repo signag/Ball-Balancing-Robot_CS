@@ -141,6 +141,9 @@ class Camera:
             else:
                 self.queue.append(self.queue[-1])
 
+        # Transform to robot coordinates
+        x, y = self.queue[-1]
+
         return self.queue[-1]
         
 

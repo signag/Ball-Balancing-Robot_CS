@@ -398,6 +398,57 @@ class BallBalancingRobot:
             response["message"] = f"Error saving calibration parameters: {e}"
         return response
 
+    def save_reset_pid(self, data: dict, response: dict) -> dict:
+        """Save the given PID parameters and reset the PID controller with the new parameters.
+
+        Args:
+            data (dict): PID parameters
+            response (dict): A dictionary to be updated with the save result.
+
+        Returns:
+            dict: The updated response dictionary with save status and message.
+        """
+        self.pid_parameters["kp"] = float(data.get("kp", self.pid_parameters["kp"]))
+        self.pid_parameters["ki"] = float(data.get("ki", self.pid_parameters["ki"]))
+        self.pid_parameters["kd"] = float(data.get("kd", self.pid_parameters["kd"]))
+        self.pid_parameters["alpha"] = float(data.get("alpha", self.pid_parameters["alpha"]))
+        self.pid_parameters["beta"] = float(data.get("beta", self.pid_parameters["beta"]))
+
+
+        self.pid = PIDcontroller(
+            self.pid_parameters["kp"],
+            self.pid_parameters["ki"],
+            self.pid_parameters["kd"],
+            self.pid_parameters["alpha"],
+            self.pid_parameters["beta"],
+            max_theta=self._theta_max,
+            conversion="tanh"
+        )
+
+        logger.debug("Saving PID parameters to file")
+        config_path = Path(__file__).parent / ROBOT_CONFIG_FILE
+        try:
+            if config_path.is_file():
+                with open(config_path, "r") as f:
+                    robot_config = json.load(f)
+            else:
+                robot_config = {}
+
+            robot_config["pid_parameters"] = self.pid_parameters
+
+            with open(config_path, "w") as f:
+                json.dump(robot_config, f, indent=4)
+
+            logger.debug("PID parameters saved successfully")
+            response["status"] = "success"
+            response["message"] = "PID parameters saved successfully"
+        except Exception as e:
+            logger.error("Error saving PID parameters: %s", e)
+            response["status"] = "error"
+            response["message"] = f"Error saving PID parameters: {e}"
+        return response
+
+
     @property
     def state(self) -> dict:
         """Return the current state of the robot, including angles, height, and motor positions.
@@ -432,7 +483,12 @@ class BallBalancingRobot:
             "minh": self.robot.minh,
             "maxh": self.robot.maxh,
             "invert": self.robot.invert,
-            "theta_ubound": self.robot.theta_ubound
+            "theta_ubound": self.robot.theta_ubound,
+            "kp": self.pid_parameters["kp"],
+            "ki": self.pid_parameters["ki"],
+            "kd": self.pid_parameters["kd"],
+            "alpha": self.pid_parameters["alpha"],
+            "beta": self.pid_parameters["beta"]
             }
         return result
 
@@ -495,6 +551,11 @@ def on_message(client, userdata, msg):
         response["state"] = bb_robot.state
     if method == "simulate_pid":
         response = simulate_pid(bb_robot, response)
+        response["state"] = bb_robot.state
+    if method == "save_reset_pid":
+        response = bb_robot.save_reset_pid(params, response)
+        response = simulate_pid(bb_robot, response)
+        response["params"] = bb_robot.params
         response["state"] = bb_robot.state
     
     client.publish("robot/response", json.dumps(response))
@@ -593,16 +654,10 @@ def simulate_pid(rob:BallBalancingRobot, response:dict) -> dict:
         frame_copy = latest_frame.copy()
     x_t, y_t = rob.cam_parameters["center"]
     x, y = rob.cam.coordinate(frame_copy)
-    theta, phi = rob.pid.pid((x_t, y_t), (x, y))
+    theta, phi, data = rob.pid.pid((x_t, y_t), (x, y))
     response["status"] = "success"
-    response["pid_simulation"] = {
-        "x_t": x_t,
-        "y_t": y_t,
-        "x": x,
-        "y": y,
-        "theta": theta,
-        "phi": phi,
-        }
+    response["message"] = ""
+    response["pid_simulation"] = data
     return response
 
 
@@ -612,7 +667,7 @@ def update_robot_pos(rob:BallBalancingRobot, x_t, y_t, x, y): #x_t, y_t: target 
     robotkinematics = rob.robot
     pidcontroller = rob.pid
 
-    rob.theta, rob.phi = pidcontroller.pid((x_t, y_t), (x, y))
+    rob.theta, rob.phi, _ = pidcontroller.pid((x_t, y_t), (x, y))
     rob.h = rob.configuration["h_work"]
     #print(rob.theta, rob.phi)
     #robotcontroller.Goto_time_spherical(rob.theta, rob.phi, rob.h, 0.02)

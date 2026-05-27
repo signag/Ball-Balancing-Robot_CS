@@ -20,7 +20,7 @@ Path(logFile).touch(exist_ok=True)
 filehandler = logging.FileHandler(logFile)
 filehandler.setFormatter(app.logger.handlers[0].formatter)
 logger = app.logger
-logger.setLevel(logging.ERROR)
+logger.setLevel(logging.DEBUG)
 logger.addHandler(filehandler)
 
 #
@@ -163,6 +163,33 @@ def handle_simulate_pid():
     }
     client.publish("robot/request", json.dumps(request))
     logger.debug("Published simulate PID request to MQTT: %s", request)
+
+@socketio.on("set_pid_param")
+def handle_set_pid_param(data):
+    request = {
+        "method": "set_pid_param",
+        "params": {
+            "param": data.get("param"),
+            "value": data.get("value")
+        }
+    }
+    client.publish("robot/request", json.dumps(request))
+    logger.debug("Published set_pid_param request to MQTT: %s", request)
+
+@socketio.on("save_reset_pid")
+def handle_save_reset_pid(data):
+    request = {
+        "method": "save_reset_pid",
+        "params": {
+            "kp": data.get("kp"),
+            "ki": data.get("ki"),
+            "kd": data.get("kd"),
+            "alpha": data.get("alpha"),
+            "beta": data.get("beta")
+        }
+    }
+    client.publish("robot/request", json.dumps(request))
+    logger.debug("Published save_reset_pid request to MQTT: %s", request)
 
 if __name__ == "__main__":
     logger.debug("Starting ball balancing robot client")
