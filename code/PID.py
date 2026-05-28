@@ -2,13 +2,15 @@ import math
 import time
 
 class PIDcontroller:
-    def __init__(self, kp, ki, kd, alpha, beta, max_theta, conversion="linear"): #"linear" or "tanh"
+    def __init__(self, kp, ki, kd, alpha, beta, max_theta, conversion="linear", recorder=None, record:bool=False): 
 
         self.kp, self.ki, self.kd = kp, ki, kd
         self.alpha = alpha  #Exponential Filter: α⋅x + (1-α)⋅x_last
         self.beta = beta  #Coefficient for converting magnitude, either βx or tanh(βx)
         self.max_theta = max_theta
-
+        self.recorder = recorder
+        self.record = record
+        
         if conversion == "linear":
             self.magnitude_convert = 1 #Linear
         elif conversion == "tanh":
@@ -70,7 +72,6 @@ class PIDcontroller:
         self.last_time = new_time
 
         data = {
-            "time": new_time,
             "dt": dt,
             "target": target,
             "current": current,
@@ -83,6 +84,8 @@ class PIDcontroller:
             "theta": theta,
             "phi": phi
         }
+        if self.record and self.recorder is not None:
+            self.recorder.record(data)
 
         return theta, phi, data
 

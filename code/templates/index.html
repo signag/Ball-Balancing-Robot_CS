@@ -73,6 +73,14 @@
           </select>
         </span>
       </div>
+      <div class="control-row">
+        <label>Rec:</label>
+        <span id="record">
+          <input type="checkbox" id="record_checkbox" onchange="set_pid_recording()">
+        </span>
+        <span> Records: </span>
+        <span id="record_count">0</span>
+      </div>
     </div>
 
     <!-- Robot Params -->
@@ -162,16 +170,14 @@
         <span id="label_theta_max">0</span>
       </div>
       <div class="control-row">
-        <label>x:</label>
+        <label>(x,y,z):</label>
+        <span>(</span>
         <span id="label_x">0</span>
-      </div>
-      <div class="control-row">
-        <label>y:</label>
+        <span>,</span>
         <span id="label_y">0</span>
-      </div>
-      <div class="control-row">
-        <label>z:</label>
+        <span>,</span>
         <span id="label_z">0</span>
+        <span>)</span>
       </div>
       <div class="control-row">
         <label>θ₁:</label>
@@ -374,6 +380,27 @@
         socket.emit("save_reset_pid", {kp: kp, ki: ki, kd: kd, alpha: alpha, beta: beta});
     }
 
+    function set_pid_recording() {
+      record_checkbox = document.getElementById("record_checkbox");
+      record = record_checkbox.checked;
+      if (record == true) {
+        if (!confirm("Start recording PID data? This will create a new CSV file on the server.")) {
+          record_checkbox.checked = false;
+          return;
+        } else {
+          // If user confirms, reset the record count to 0
+          document.getElementById("record_count").textContent = "0";
+        }
+      }
+      if (record == false) {
+        if (!confirm("Stop recording PID data? This will save the recorded PID data to a CSV file.")) {
+          record_checkbox.checked = true;
+          return;
+        }
+      }
+      socket.emit("set_pid_recording", {record: record_checkbox.checked});
+    }
+
     socket.on("connect", () => {
       console.log("Connected");
 
@@ -464,6 +491,13 @@
       document.getElementById("pid_theta").textContent = data.theta.toFixed(2);
       document.getElementById("pid_phi").textContent = data.phi.toFixed(2);
     });
+
+    socket.on("pid_recording_update", (data) => {
+      console.log("socket.on(pid_recording_update) - data:", data);
+      document.getElementById("record_checkbox").checked = Boolean(data.recording);
+      document.getElementById("record_count").textContent = data.recorded.toFixed();
+    });
+
   </script>
 </body>
 

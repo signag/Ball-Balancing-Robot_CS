@@ -2,6 +2,7 @@ import paho.mqtt.client as mqtt
 import signal
 import threading
 import time
+import datetime
 import cv2
 import json
 import os
@@ -12,6 +13,7 @@ from controller import RobotController
 from camera import Camera
 from PID import PIDcontroller
 from flask import Flask, Response
+import csv
 import logging
 #
 # Robot configuration
@@ -44,10 +46,10 @@ for logger in (
     # logger.addHandler(streamhandler)
 
 # >>>>> Explicitely set specific log levels.
-logging.getLogger("bb_robot_server").setLevel(logging.DEBUG)
+# logging.getLogger("bb_robot_server").setLevel(logging.DEBUG)
 # logging.getLogger("robotKinematics").setLevel(logging.DEBUG)
 # logging.getLogger("controller").setLevel(logging.DEBUG)
-logging.getLogger("camera").setLevel(logging.DEBUG)
+# logging.getLogger("camera").setLevel(logging.DEBUG)
 
 logger = logging.getLogger("bb_robot_server")
 
@@ -60,6 +62,34 @@ image_lock = threading.Lock()
 thread_lock = threading.Lock()
 shutdown = False
 stop_capture = False
+
+class PID_Recorder:
+    def __init__(self, save_path="pid_data.csv"):
+        self.save_path = save_path
+        self.samples = []
+
+    def record(self, data):
+        self.samples.append([
+            data["dt"],
+            data["err"][0], data["err"][1],
+            data["err_i"][0], data["err_i"][1],
+            data["err_d"][0], data["err_d"][1],
+            data["theta"], data["phi"]
+        ])
+
+    def save(self):
+        with open(self.save_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "dt",
+                "err_x", "err_y",
+                "sum_err_x", "sum_err_y",
+                "d_err_x", "d_err_y",
+                "theta", "phi"
+            ])
+            writer.writerows(self.samples)
+        logger.debug("PID_Recorder.save - Saved %s samples → %s", len(self.samples), self.save_path)
+
 
 class BallBalancingRobot:
     def __init__(self):
@@ -102,6 +132,10 @@ class BallBalancingRobot:
         self.robot = RobotKinematics(lp=self.configuration["LP"], l1=self.configuration["L1"], l2=self.configuration["L2"], lb=self.configuration["LB"], invert=self.configuration["INVERT"])
         self.controller = RobotController(self.robot, calibration=self.calibration)
         self.cam = Camera(self.cam_parameters)
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        fn = Path(__file__).parent / f"pid_data_{ts}.csv"
+        self.pid_recorder = PID_Recorder(fn)
+        self.record = False
 
         self._h = (self.robot.maxh + self.robot.minh) / 2
         self._theta = 0.0
@@ -117,7 +151,9 @@ class BallBalancingRobot:
             self.pid_parameters["alpha"],
             self.pid_parameters["beta"],
             max_theta=self._theta_max,
-            conversion="tanh"
+            conversion="tanh",
+            recorder=self.pid_recorder,
+            record=self.record
         )
 
         self.set_orientation(0.0, 0.0, self.robot.minh)
@@ -447,7 +483,48 @@ class BallBalancingRobot:
             response["status"] = "error"
             response["message"] = f"Error saving PID parameters: {e}"
         return response
+    
+    def set_pid_recording(self, data: dict, response: dict) -> dict:
+        """Enable or disable PID recording based on the given parameter.
 
+        Args:
+            data (dict): A dictionary containing the "record" key with a boolean value.
+            response (dict): A dictionary to be updated with the recording status.
+
+        Returns:
+            dict: The updated response dictionary with recording status and message.
+        """
+        record = bool(data.get("record", False))
+        self.record = record
+        self.pid.record = record
+        if record == True:
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            fn = Path(__file__).parent / f"pid_data_{ts}.csv"
+            self.pid_recorder = PID_Recorder(fn)
+            self.pid.recorder = self.pid_recorder
+            logger.debug("PID recording enabled")
+            response["status"] = "success"
+            response["message"] = "PID recording enabled"
+            response["pid_recording"] = self.pid_recording_state
+        else:
+            self.pid_recorder.save()
+            self.pid_recorder=None
+            self.pid.recorder = None
+            logger.debug("PID recording disabled")
+            response["status"] = "success"
+            response["message"] = "PID recording disabled"
+            response["pid_recording"] = self.pid_recording_state
+        return response
+
+    @property
+    def pid_recording_state(self) -> dict:
+        """Return the current state of PID recording, including whether it is enabled and how many samples have been recorded.
+        """
+        result = {
+            "recording": self.record,
+            "recorded": len(self.pid_recorder.samples) if self.pid_recorder else 0
+        }
+        return result
 
     @property
     def state(self) -> dict:
@@ -529,11 +606,13 @@ def on_message(client, userdata, msg):
     if method == "get_state":
         response["status"] = "success"
         response["state"] = bb_robot.state
+        response["pid_recording"] = bb_robot.pid_recording_state
         response["message"] = ""
     if method == "get_data":
         response["status"] = "success"
         response["params"] = bb_robot.params
         response["state"] = bb_robot.state
+        response["pid_recording"] = bb_robot.pid_recording_state
         response["message"] = ""
     if method == "update":
         response = bb_robot.update(params, response)
@@ -557,6 +636,8 @@ def on_message(client, userdata, msg):
         response = simulate_pid(bb_robot, response)
         response["params"] = bb_robot.params
         response["state"] = bb_robot.state
+    if method == "set_pid_recording":
+        response = bb_robot.set_pid_recording(params, response)
     
     client.publish("robot/response", json.dumps(response))
     logger.debug("Sent response: %s", response)
