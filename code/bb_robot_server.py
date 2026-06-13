@@ -42,14 +42,14 @@ for logger in (
     logging.getLogger("PIDcontroller"),
 ):
     logger.setLevel(logging.ERROR)
-    logger.addHandler(filehandler)
-    # logger.addHandler(streamhandler)
+    # logger.addHandler(filehandler)
+    logger.addHandler(streamhandler)
 
 # >>>>> Explicitely set specific log levels.
 # logging.getLogger("bb_robot_server").setLevel(logging.DEBUG)
 # logging.getLogger("robotKinematics").setLevel(logging.DEBUG)
 # logging.getLogger("controller").setLevel(logging.DEBUG)
-# logging.getLogger("camera").setLevel(logging.DEBUG)
+logging.getLogger("camera").setLevel(logging.DEBUG)
 
 logger = logging.getLogger("bb_robot_server")
 
@@ -99,6 +99,7 @@ class BallBalancingRobot:
 
         # Load robot configuration from file if it exists
         self.mode = "manual"
+        self.show_contours = False
         self.configuration = {
             "LP": 7.125,
             "L1": 6.20,
@@ -515,6 +516,24 @@ class BallBalancingRobot:
             response["message"] = "PID recording disabled"
             response["pid_recording"] = self.pid_recording_state
         return response
+    
+    def set_ctrl_params(self, data: dict, response: dict) -> dict:
+        """Set control parameters based on the given data.
+
+        Args:
+            data (dict): A dictionary containing control parameters to be updated.
+            response (dict): A dictionary to be updated with the new control parameters.
+
+        Returns:
+            dict: The updated response dictionary with new control parameters and message.
+        """
+        show_contours = bool(data.get("show_contours", self.show_contours))
+        self.show_contours = show_contours
+        logger.debug("Updated control parameters: show_contours=%s", self.show_contours)
+        response["status"] = "success"
+        response["message"] = "Control parameters updated successfully"
+        response["state"] = self.state
+        return response
 
     @property
     def pid_recording_state(self) -> dict:
@@ -532,6 +551,7 @@ class BallBalancingRobot:
         """
         result = {
             "mode": self.mode,
+            "show_contours": self.show_contours,
             "theta": self.theta,
             "phi": self.phi,
             "h": self.h,
@@ -638,6 +658,8 @@ def on_message(client, userdata, msg):
         response["state"] = bb_robot.state
     if method == "set_pid_recording":
         response = bb_robot.set_pid_recording(params, response)
+    if method == "set_ctrl_params":
+        response = bb_robot.set_ctrl_params(params, response)
     
     client.publish("robot/response", json.dumps(response))
     logger.debug("Sent response: %s", response)
@@ -684,13 +706,14 @@ def capture(cam):
     running = True
     while running == True:
         frame = cam.take_picture()
-        with frame_lock:
-            latest_frame = frame 
-        with thread_lock:
-            if shutdown == True:
-                running = False
-            if stop_capture == True:
-                running = False
+        #with frame_lock:
+        latest_frame = frame 
+        logger.debug("capture - Captured new frame")
+        #with thread_lock:
+        if shutdown == True:
+            running = False
+        if stop_capture == True:
+            running = False
     # Stop the camera
     cam.terminate()
 
@@ -699,27 +722,47 @@ def process(rob:BallBalancingRobot):
     cam = rob.cam
     hz = 50
     global latest_frame, latest_image, x, y
+    x_t, y_t = rob.cam_parameters["center"]
     running = True
     while running == True:
-        with frame_lock:
-            if latest_frame is None:
-                continue 
-            frame_copy = latest_frame.copy()
-        
         loop_start = time.perf_counter()
-        x, y = cam.coordinate(frame_copy)  
-        x_t, y_t = rob.cam_parameters["center"]
+        #with frame_lock:
+        if latest_frame is None:
+            continue 
+        frame_copy = latest_frame.copy()
+        logger.debug("process - Copied latest frame")
+
         with image_lock:
-            latest_image = cam.draw_position(frame_copy, (x_t, y_t), (x, y))
+            latest_image = frame_copy.copy()
+            if rob.show_contours:
+                x, y = cam.coordinate(frame_copy, latest_image)
+            else:
+                x, y = cam.coordinate(frame_copy)
+            logger.debug("process - Calculated coordinates: x=%s, y=%s", x, y)
+            latest_image = cam.draw_position(latest_image, (x_t, y_t), (x, y))
+            logger.debug("process - position drawn on image")
         if rob.mode == "auto":
             update_robot_pos(rob, x_t, y_t, x, y)
-        with thread_lock:
-            if shutdown == True:
-                running = False
+            logger.debug("process - Updated robot position")
+        #with thread_lock:
+        if shutdown == True:
+            running = False
         elapsed = time.perf_counter() - loop_start
         sleep_time = (1 / hz) - elapsed
         if sleep_time > 0:
             time.sleep(sleep_time)
+
+def update_robot_pos(rob:BallBalancingRobot, x_t, y_t, x, y): #x_t, y_t: target position, x, y: current position, t: duration 
+
+    robotcontroller = rob.controller
+    robotkinematics = rob.robot
+    pidcontroller = rob.pid
+
+    rob.theta, rob.phi, _ = pidcontroller.pid((x_t, y_t), (x, y))
+    rob.h = rob.configuration["h_work"]
+    #print(rob.theta, rob.phi)
+    #robotcontroller.Goto_time_spherical(rob.theta, rob.phi, rob.h, 0.02)
+    robotcontroller.Goto_N_time_spherical(rob.theta, rob.phi, rob.h)
 
 def simulate_pid(rob:BallBalancingRobot, response:dict) -> dict:
     """Return simulation result for current ball position
@@ -740,19 +783,6 @@ def simulate_pid(rob:BallBalancingRobot, response:dict) -> dict:
     response["message"] = ""
     response["pid_simulation"] = data
     return response
-
-
-def update_robot_pos(rob:BallBalancingRobot, x_t, y_t, x, y): #x_t, y_t: target position, x, y: current position, t: duration 
-
-    robotcontroller = rob.controller
-    robotkinematics = rob.robot
-    pidcontroller = rob.pid
-
-    rob.theta, rob.phi, _ = pidcontroller.pid((x_t, y_t), (x, y))
-    rob.h = rob.configuration["h_work"]
-    #print(rob.theta, rob.phi)
-    #robotcontroller.Goto_time_spherical(rob.theta, rob.phi, rob.h, 0.02)
-    robotcontroller.Goto_N_time_spherical(rob.theta, rob.phi, rob.h)
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, shutdown)

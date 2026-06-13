@@ -72,6 +72,8 @@
             <option value="calibration">Calibration</option>
           </select>
         </span>
+        <span> Contours: </span>
+        <input type="checkbox" id="show_contours_checkbox" onchange="set_ctrl_params()">
       </div>
       <div class="control-row">
         <label>Rec:</label>
@@ -401,6 +403,12 @@
       socket.emit("set_pid_recording", {record: record_checkbox.checked});
     }
 
+    function set_ctrl_params() {
+        show_contours = document.getElementById("show_contours_checkbox").checked;
+        console.log("set_ctrl_params - show_contours:", show_contours);
+        socket.emit("set_ctrl_params", {show_contours: show_contours});
+    }
+
     socket.on("connect", () => {
       console.log("Connected");
 
@@ -411,6 +419,7 @@
     socket.on("state_update", (data) => {
       console.log("socket.on(state_update) - data:", data);
       document.getElementById("select_mode").value = (data.mode);
+      document.getElementById("show_contours_checkbox").checked = Boolean(data.show_contours);
       document.getElementById("slider_theta").value = (data.theta * 100).toFixed();
       document.getElementById("spin_theta").value = data.theta.toFixed(2);
       document.getElementById("slider_phi").value = (data.phi * 100).toFixed();

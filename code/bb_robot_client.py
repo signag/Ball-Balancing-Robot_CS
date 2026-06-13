@@ -206,6 +206,17 @@ def handle_set_pid_recording(data):
     client.publish("robot/request", json.dumps(request))
     logger.debug("Published set_pid_recording request to MQTT: %s", request)
 
+@socketio.on("set_ctrl_params")
+def handle_set_ctrl_params(data):
+    request = {
+        "method": "set_ctrl_params",
+        "params": {
+            "show_contours": data.get("show_contours")
+        }
+    }
+    client.publish("robot/request", json.dumps(request))
+    logger.debug("Published set_ctrl_params request to MQTT: %s", request)
+
 if __name__ == "__main__":
     logger.debug("Starting ball balancing robot client")
     app.run(host="0.0.0.0", port=5000, debug=False)

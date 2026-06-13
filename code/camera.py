@@ -14,6 +14,8 @@ class Camera:
     def __init__(self, camera_parameters: dict):
         logger.debug("Camera.__init__ - Initializing camera with camera_parameters: %s", camera_parameters)
         self.camera_parameters = camera_parameters
+        self.center = camera_parameters["center"]
+        self.detection_radius = camera_parameters["detection_radius"]
         self.picam2 = Picamera2()
         config = self.picam2.create_preview_configuration(
             main={
@@ -28,6 +30,7 @@ class Camera:
 
         self.lower_black = np.array([0, 0, 0])
         self.upper_black = np.array([180, 255, 50])
+        # self.upper_black = np.array([99, 99, 99])
         self.gray_threshold = 60
 
         self.queue = deque(maxlen=16)
@@ -84,7 +87,7 @@ class Camera:
         gc.collect()
         cv2.destroyAllWindows()
 
-    def coordinate(self, image):
+    def coordinate(self, image, dispplay_image=None):
         
         prev_time = time.time()
 
@@ -106,32 +109,51 @@ class Camera:
 
         # --- Find Contours (circles)
         valid_detections = []
-        contours, _ = cv2.findContours(mask_dilated.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # contours, _ = cv2.findContours(mask_dilated.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(mask_dilated.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         for contour in contours:
             # Minimum Enclosing Circle
             (x, y), radius = cv2.minEnclosingCircle(contour)
             radius = int(radius)
 
             # Ignore small objects
-            if radius < 5 or radius > 100:  # Adjust min/max radius based on expected size
+            # if radius < 5 or radius > 100:  # Adjust min/max radius based on expected size
+            if radius < 5 or radius > self.detection_radius:  # Adjust min/max radius based on expected size
+                if dispplay_image is not None:
+                    cv2.drawContours(dispplay_image, [contour], -1, (255, 255, 0), 1)
                 continue
 
             #Compute Circularity 4π(Area / Perimeter²)
             area = cv2.contourArea(contour)
             perimeter = cv2.arcLength(contour, True)
             if perimeter == 0:
+                if dispplay_image is not None:
+                    cv2.drawContours(dispplay_image, [contour], -1, (255, 255, 0), 1)
                 continue
             circularity = (4 * np.pi * area) / (perimeter ** 2)
             if circularity < 0.6:  # Threshold to eliminate non-circular objects
+                if dispplay_image is not None:
+                    cv2.drawContours(dispplay_image, [contour], -1, (0, 255, 255), 1)
                 continue
 
+            if dispplay_image is not None:
+                cv2.drawContours(dispplay_image, [contour], -1, (0, 0, 255), 2)
             # Compute Aspect Ratio of Bounding Box
             x, y, w, h = cv2.boundingRect(contour)
+            xd = int(x + w / 2)
+            yd = int(y + h / 2)
+
+            # Check that detection is within the detection radius around the center
+            dx = xd - self.center[0]
+            dy = yd - self.center[1]
+            distance = np.sqrt(dx**2 + dy**2)
 
             # If the contour passes all filters
-            valid_detections.append((area, (int(x + w / 2), int(y + h / 2))))
+            if distance <= self.detection_radius:
+                valid_detections.append((area, (xd, yd)))
 
-        
+
+        logger.debug("coordinate - Found %d valid detections from %d contours", len(valid_detections), len(contours))
         if valid_detections:
             best_center = max(valid_detections, key=lambda item: item[0])[1]  
             self.queue.append(best_center) 
@@ -141,20 +163,36 @@ class Camera:
             else:
                 self.queue.append(self.queue[-1])
 
-        # Transform to robot coordinates
         x, y = self.queue[-1]
 
         return self.queue[-1]
         
 
 if __name__ == "__main__":
-    cam = Camera()
+    cam_parameters = {
+        "resolution": [
+            1640,
+            1232
+        ],
+        "resolution_work": [
+            200,
+            150
+        ],
+        "center": [
+            99,
+            81
+        ],
+        "detection_radius": 55,
+        "format": "RGB888"
+    }
+
+    cam = Camera(cam_parameters)
 
     try:
         while True:
             img = cam.take_picture()
             c = cam.coordinate(img)
-            cam.display_draw(img, c)
+            # cam.display_draw(img, c)
             print(c)
             
             # Exit if 'q' is pressed
