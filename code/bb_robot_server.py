@@ -1,4 +1,5 @@
 import paho.mqtt.client as mqtt
+from picamera2 import Picamera2
 import signal
 import threading
 import time
@@ -8,21 +9,37 @@ import json
 import os
 from pathlib import Path
 import math
-from robotKinematics import RobotKinematics
-from controller import RobotController
-from camera import Camera
-from PID import PIDcontroller
+import numpy as np
+from collections import deque
 from flask import Flask, Response
 import csv
+import gc
+import board
+import busio
+from adafruit_pca9685 import PCA9685
+from adafruit_servokit import ServoKit
+import math
+
+
 import logging
 #
 # Robot configuration
 #
+HOMEDIR = os.getcwd()
+if not os.path.exists(os.path.join(HOMEDIR, "config")):
+    HOMEDIR = os.path.join(os.environ.get("HOME", os.getcwd()), "bb_robot_home")
+CONFIG_DIR = HOMEDIR + "/config"
+os.makedirs(CONFIG_DIR, exist_ok=True)
+DATA_DIR = HOMEDIR + "/data"
+os.makedirs(DATA_DIR, exist_ok=True)
 ROBOT_CONFIG_FILE = "bb_robot_config.json"
 #
-# Configure logging
+#Initial Ball Position
+x, y = 100, 75
 #
-logsPath = os.getcwd() + "/logs"
+# Logging configuration
+#
+logsPath = HOMEDIR + "/logs"
 os.makedirs(logsPath, exist_ok=True)
 logFile = logsPath + "/bb_robot.log"
 Path(logFile).touch(exist_ok=True)
@@ -31,30 +48,19 @@ filehandler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s in %(nam
 streamhandler = logging.StreamHandler()
 streamhandler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s in %(name)s: %(message)s'))
 
-#Initialize Ball Position
-x, y = 100, 75
-
-for logger in (
-    logging.getLogger("bb_robot_server"),
-    logging.getLogger("robotKinematics"),
-    logging.getLogger("controller"),
-    logging.getLogger("camera"),
-    logging.getLogger("PIDcontroller"),
-):
-    logger.setLevel(logging.ERROR)
-    # logger.addHandler(filehandler)
-    logger.addHandler(streamhandler)
-
-# >>>>> Explicitely set specific log levels.
-# logging.getLogger("bb_robot_server").setLevel(logging.DEBUG)
-# logging.getLogger("robotKinematics").setLevel(logging.DEBUG)
-# logging.getLogger("controller").setLevel(logging.DEBUG)
-logging.getLogger("camera").setLevel(logging.DEBUG)
-
 logger = logging.getLogger("bb_robot_server")
+logger.addHandler(streamhandler)
+# logger.addHandler(filehandler)
+logger.setLevel(logging.ERROR)
 
+#
+# Flask application
+#
 app = Flask(__name__)
 
+#
+# Global variables for camera and robot state
+#
 latest_frame = None
 latest_image = None
 frame_lock = threading.Lock()
@@ -101,10 +107,10 @@ class BallBalancingRobot:
         self.mode = "manual"
         self.show_contours = False
         self.configuration = {
-            "LP": 7.125,
-            "L1": 6.20,
+            "LP": 7.14,
+            "L1": 7.50,
             "L2": 4.50,
-            "LB": 4.00,
+            "LB": 5.56,
             "INVERT": False,
             "h_work": 9.53
         }
@@ -115,8 +121,8 @@ class BallBalancingRobot:
         }
         self.pid_parameters = {
             "kp": 0.0063,
-            "ki": 0.00005,
-            "kd": 0.006025,
+            "ki": 0.0006,
+            "kd": 0.0060,
             "alpha": 0.65,
             "beta": 0.3
         }
@@ -124,7 +130,7 @@ class BallBalancingRobot:
             "resolution": (1640, 1232),
             "resolution_work": (200, 150),
             "center": (100, 75),
-            "detection_radius": 70, 
+            "detection_radius": 55, 
             "format": "RGB888"
         }
         
@@ -134,7 +140,7 @@ class BallBalancingRobot:
         self.controller = RobotController(self.robot, calibration=self.calibration)
         self.cam = Camera(self.cam_parameters)
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        fn = Path(__file__).parent / f"pid_data_{ts}.csv"
+        fn = Path(DATA_DIR) / f"pid_data_{ts}.csv"
         self.pid_recorder = PID_Recorder(fn)
         self.record = False
 
@@ -164,7 +170,7 @@ class BallBalancingRobot:
         self.set_orientation(0.0, 0.0, self.configuration["h_work"])
 
     def read_config(self):
-        fp = Path(__file__).parent / ROBOT_CONFIG_FILE
+        fp = Path(CONFIG_DIR) / ROBOT_CONFIG_FILE
         if fp.is_file():
             logger.debug("Loading robot configuration from file: %s", fp)
             with open(fp, "r") as f:
@@ -217,6 +223,17 @@ class BallBalancingRobot:
                         "format": cam_parameters.get("format", self.cam_parameters["format"])
                     })
                     logger.debug("Loaded camera parameters: %s", self.cam_parameters)
+        else:
+            logger.debug("No robot configuration file found at %s, using default configuration", fp)
+            robot_config = {}
+            robot_config["mode"] = self.mode
+            robot_config["configuration"] = self.configuration
+            robot_config["calibration"] = self.calibration
+            robot_config["pid_parameters"] = self.pid_parameters
+            robot_config["cam_parameters"] = self.cam_parameters
+            with open(fp, "w") as f:
+                json.dump(robot_config, f, indent=4)
+            logger.debug("Saved default robot configuration to file: %s", fp)
 
     @property
     def theta_max(self):
@@ -413,7 +430,7 @@ class BallBalancingRobot:
             dict: The updated response dictionary with save status and message.
         """
         logger.debug("Saving calibration parameters to file")
-        config_path = Path(__file__).parent / ROBOT_CONFIG_FILE
+        config_path = Path(DATA_DIR) / ROBOT_CONFIG_FILE
         try:
             if config_path.is_file():
                 with open(config_path, "r") as f:
@@ -463,7 +480,7 @@ class BallBalancingRobot:
         )
 
         logger.debug("Saving PID parameters to file")
-        config_path = Path(__file__).parent / ROBOT_CONFIG_FILE
+        config_path = Path(DATA_DIR) / ROBOT_CONFIG_FILE
         try:
             if config_path.is_file():
                 with open(config_path, "r") as f:
@@ -500,7 +517,7 @@ class BallBalancingRobot:
         self.pid.record = record
         if record == True:
             ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            fn = Path(__file__).parent / f"pid_data_{ts}.csv"
+            fn = Path(DATA_DIR) / f"pid_data_{ts}.csv"
             self.pid_recorder = PID_Recorder(fn)
             self.pid.recorder = self.pid_recorder
             logger.debug("PID recording enabled")
@@ -588,6 +605,615 @@ class BallBalancingRobot:
             "beta": self.pid_parameters["beta"]
             }
         return result
+
+class Camera:
+    #1640, 1232
+    def __init__(self, camera_parameters: dict):
+        logger.debug("Camera.__init__ - Initializing camera with camera_parameters: %s", camera_parameters)
+        self.camera_parameters = camera_parameters
+        self.center = camera_parameters["center"]
+        self.detection_radius = camera_parameters["detection_radius"]
+        self.picam2 = Picamera2()
+        config = self.picam2.create_preview_configuration(
+            main={
+                "size": camera_parameters["resolution"],
+                "format": camera_parameters["format"]
+            }, 
+            controls={
+                "FrameDurationLimits": (8333, 8333)
+            }
+        )
+        self.picam2.configure(config)
+
+        self.lower_black = np.array([0, 0, 0])
+        self.upper_black = np.array([180, 255, 50])
+        # self.upper_black = np.array([99, 99, 99])
+        self.gray_threshold = 60
+
+        self.queue = deque(maxlen=16)
+        self.queue.append(self.camera_parameters["center"])  
+
+        self.picam2.start()
+
+    def take_picture(self):
+        image = self.picam2.capture_array()
+        frame_resized = cv2.resize(image, self.camera_parameters["resolution_work"])
+        return frame_resized
+
+    def display(self, image, window_name="Camera Output"):
+        cv2.imshow(window_name, image)
+        cv2.waitKey(1) 
+
+    def display_draw(self, image, center, window_name="Tracked Output"):
+        x, y = center
+        cv2.line(image, (x - 10, y), (x + 10, y), (0, 0, 255), 2)
+        cv2.line(image, (x, y - 10), (x, y + 10), (0, 0, 255), 2)
+        cv2.imshow(window_name, image)
+        cv2.waitKey(1) 
+
+    def draw_position(self, image, center, pos):
+        x0, y0 = center
+        cv2.line(image, (x0 - 10, y0), (x0 + 10, y0), (0, 255, 0), 2)
+        cv2.line(image, (x0, y0 - 10), (x0, y0 + 10), (0, 255, 0), 2)
+        cv2.circle(
+            image,
+            center=center,
+            radius=self.camera_parameters["detection_radius"],
+            color=(0, 255, 0),
+            thickness=2
+        )        
+
+        x, y = pos
+        cv2.line(image, (x - 10, y), (x + 10, y), (0, 0, 255), 2)
+        cv2.line(image, (x, y - 10), (x, y + 10), (0, 0, 255), 2)
+        return image
+
+    def terminate(self):
+        self.picam2.stop()
+        cnt = 0
+        while self.picam2.started == True:
+            time.sleep(0.01)
+            cnt += 1
+            if cnt > 100:
+                logger.warning("Camera did not stop after 1 second, forcing shutdown")
+                break
+        # Close camera
+        if self.picam2.is_open == True:
+            self.picam2.close()
+        # garbage collection
+        gc.collect()
+        cv2.destroyAllWindows()
+
+    def coordinate(self, image, dispplay_image=None):
+        
+        prev_time = time.time()
+
+        # Apply Gaussian blur.
+        frame_blurred = cv2.GaussianBlur(image, (3, 3), 0)
+        
+        # Convert from BGR to HSV.
+        frame_hsv = cv2.cvtColor(frame_blurred, cv2.COLOR_BGR2HSV)
+        frame_gray = cv2.cvtColor(frame_blurred, cv2.COLOR_BGR2GRAY)
+
+        #Filter based on Darkness + HSV
+        mask_hsv = cv2.inRange(frame_hsv, self.lower_black, self.upper_black)
+        mask_gray = cv2.threshold(frame_gray, self.gray_threshold, 255, cv2.THRESH_BINARY_INV)[1]
+        mask_combined = cv2.bitwise_or(mask_hsv, mask_gray)
+
+        #Process Edges
+        mask_eroded = cv2.erode(mask_combined, None, iterations=1)
+        mask_dilated = cv2.dilate(mask_eroded, None, iterations=1)
+
+        # --- Find Contours (circles)
+        valid_detections = []
+        # contours, _ = cv2.findContours(mask_dilated.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(mask_dilated.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            # Minimum Enclosing Circle
+            (x, y), radius = cv2.minEnclosingCircle(contour)
+            radius = int(radius)
+
+            # Ignore small objects
+            # if radius < 5 or radius > 100:  # Adjust min/max radius based on expected size
+            if radius < 5 or radius > self.detection_radius:  # Adjust min/max radius based on expected size
+                if dispplay_image is not None:
+                    cv2.drawContours(dispplay_image, [contour], -1, (255, 255, 0), 1)
+                continue
+
+            #Compute Circularity 4π(Area / Perimeter²)
+            area = cv2.contourArea(contour)
+            perimeter = cv2.arcLength(contour, True)
+            if perimeter == 0:
+                if dispplay_image is not None:
+                    cv2.drawContours(dispplay_image, [contour], -1, (255, 255, 0), 1)
+                continue
+            circularity = (4 * np.pi * area) / (perimeter ** 2)
+            if circularity < 0.6:  # Threshold to eliminate non-circular objects
+                if dispplay_image is not None:
+                    cv2.drawContours(dispplay_image, [contour], -1, (0, 255, 255), 1)
+                continue
+
+            if dispplay_image is not None:
+                cv2.drawContours(dispplay_image, [contour], -1, (0, 0, 255), 2)
+            # Compute Aspect Ratio of Bounding Box
+            x, y, w, h = cv2.boundingRect(contour)
+            xd = int(x + w / 2)
+            yd = int(y + h / 2)
+
+            # Check that detection is within the detection radius around the center
+            dx = xd - self.center[0]
+            dy = yd - self.center[1]
+            distance = np.sqrt(dx**2 + dy**2)
+
+            # If the contour passes all filters
+            if distance <= self.detection_radius:
+                valid_detections.append((area, (xd, yd)))
+
+
+        logger.debug("coordinate - Found %d valid detections from %d contours", len(valid_detections), len(contours))
+        if valid_detections:
+            best_center = max(valid_detections, key=lambda item: item[0])[1]  
+            self.queue.append(best_center) 
+        else:
+            if False and len(self.queue) >= 5 and self.queue[-1] == self.queue[-2] == self.queue[-3] == self.queue[-4] == self.queue[-5]:
+                self.queue.append((100, 75))
+            else:
+                self.queue.append(self.queue[-1])
+
+        x, y = self.queue[-1]
+
+        return self.queue[-1]
+
+class RobotController:
+    def __init__(self, model, calibration=None):
+        logger.debug("RobotController.__init__ - Initializing with calibration=%s", calibration)
+        self.robot = model
+        self.calibration = calibration or {"theta1_offset": 0.0, "theta2_offset": 0.0, "theta3_offset": 0.0}
+        
+        # Initialize the ServoKit and assign servos
+        self.Controller = ServoKit(channels=16)
+        self.s1 = self.Controller.servo[14]
+        self.s2 = self.Controller.servo[15]
+        self.s3 = self.Controller.servo[13]
+
+        # Configure servos
+        for s in (self.s1, self.s2, self.s3):
+            s.actuation_range = 270
+            s.set_pulse_width_range(500, 2500)
+
+        self.initialize()
+
+    def initialize(self):
+      
+        logger.debug("RobotController.initialize - Initializing ...")
+        #self.set_motor_angles(54, 54, 54)
+        #self.interpolate_time([19, 19, 19], duration=0.25)
+        #time.sleep(1)
+        #self.interpolate_time([90, 90, 90], duration=0.25)
+        #time.sleep(1)
+        #self.Goto_time_spherical(0, 0, 8.26, t=0.25)
+        #time.sleep(1)
+        logger.debug("RobotController.initialize - Initialized")
+
+    def clamp(self, value, lower=19, upper=90):
+        return max(lower, min(value, upper))
+    
+    def set_motor_angles(self, theta1, theta2, theta3):
+        # Calibrate offsets 
+        self.s1.angle = self.clamp(theta1 + self.calibration["theta1_offset"])
+        self.s2.angle = self.clamp(theta2 + self.calibration["theta2_offset"])
+        self.s3.angle = self.clamp(theta3 + self.calibration["theta3_offset"])
+
+    def interpolate_time(self, target_angles, steps=100, duration=0.3, individual_durations=None):
+ 
+        current_angles = [self.s1.angle, self.s2.angle, self.s3.angle]
+        if individual_durations is None:
+            individual_durations = [duration] * 3
+        max_duration = max(individual_durations)
+        steps = max(1, int(max_duration / 0.01))
+        for i in range(steps + 1):
+            t = i * max_duration / steps
+            angles = [
+                c + (t_angle - c) * min(t / d, 1) if d > 0 else t_angle 
+                for c, t_angle, d in zip(current_angles, target_angles, individual_durations)
+            ]
+            self.set_motor_angles(*angles)
+            time.sleep(max_duration / steps)
+
+    def interpolate_speed(self, target_angles, speed=30, individual_speeds=None):
+   
+        current_angles = [self.s1.angle, self.s2.angle, self.s3.angle]
+        if individual_speeds is None:
+            individual_speeds = [speed] * 3
+        durations = [
+            abs(t - c) / s if s > 0 else 0 
+            for c, t, s in zip(current_angles, target_angles, individual_speeds)
+        ]
+        max_duration = max(durations)
+        steps = max(1, int(max_duration / 0.01))
+        for i in range(steps + 1):
+            t = i * max_duration / steps
+            angles = [
+                c + (t_angle - c) * min(t / d, 1) if d > 0 else t_angle 
+                for c, t_angle, d in zip(current_angles, target_angles, durations)
+            ]
+            self.set_motor_angles(*angles)
+            time.sleep(max_duration / steps)
+
+    def Goto_time_spherical(self, theta, phi, h, t=0.5):
+        self.robot.solve_inverse_kinematics_spherical(theta, phi, h)
+        target_angles = [
+            math.degrees(math.pi*0.5 - self.robot.theta1),
+            math.degrees(math.pi*0.5 - self.robot.theta2),
+            math.degrees(math.pi*0.5 - self.robot.theta3)
+        ]
+        self.interpolate_time(target_angles, duration=t)
+
+    def Goto_time_vector(self, a, b, c, h, t=0.5):
+        self.robot.solve_inverse_kinematics_vector(a, b, c, h)
+        target_angles = [
+            math.degrees(math.pi*0.5 - self.robot.theta1),
+            math.degrees(math.pi*0.5 - self.robot.theta2),
+            math.degrees(math.pi*0.5 - self.robot.theta3)
+        ]
+        self.interpolate_time(target_angles, duration=t)
+
+    def Goto_N_time_vector(self, a, b, c, h):
+        self.robot.solve_inverse_kinematics_vector(a, b, c, h)
+        target_angles = [
+            math.degrees(math.pi*0.5 - self.robot.theta1),
+            math.degrees(math.pi*0.5 - self.robot.theta2),
+            math.degrees(math.pi*0.5 - self.robot.theta3)
+        ]
+        self.set_motor_angles(*target_angles)
+    
+    def Goto_N_time_spherical(self, theta, phi, h):
+        
+        self.robot.solve_inverse_kinematics_spherical(theta, phi, h)
+        target_angles = [
+            math.degrees(math.pi*0.5 - self.robot.theta1),
+            math.degrees(math.pi*0.5 - self.robot.theta2),
+            math.degrees(math.pi*0.5 - self.robot.theta3)
+        ]
+        #print(theta, phi, target_angles)
+        self.set_motor_angles(*target_angles)
+
+    '''
+    def Goto_Speed(self, alpha, beta, gamma, h, speed=240):
+
+        gamma_ = max(math.sin(math.pi * 5 / 12), gamma)
+        self.robot.solve_inverse_kinematics(alpha, beta, gamma_, h)
+        target_angles = [
+            radians_to_degrees(math.pi * 0.5 - self.robot.theta1),
+            radians_to_degrees(math.pi * 0.5 - self.robot.theta2),
+            radians_to_degrees(math.pi * 0.5 - self.robot.theta3)
+        ]
+        self.interpolate_speed(target_angles, speed=speed)
+
+    def Goto_NOPOLATE(self, alpha, beta, gamma, h):
+  
+        gamma_ = max(math.sin(math.pi * 5 / 12), gamma)
+        self.robot.solve_inverse_kinematics(alpha, beta, gamma_, h)
+        self.set_motor_angles(
+            radians_to_degrees(math.pi * 0.5 - self.robot.theta1),
+            radians_to_degrees(math.pi * 0.5 - self.robot.theta2),
+            radians_to_degrees(math.pi * 0.5 - self.robot.theta3)
+        )
+    '''
+
+    def calibrate(self, calibration:dict) ->None:
+        self.calibration = calibration or {"theta1_offset": 0.0, "theta2_offset": 0.0, "theta3_offset": 0.0}
+        
+
+    def Dance1(self):
+ 
+        self.Goto_time_vector(0.258819045103, 0, 0.965925826289, 8)
+        for _ in range(3):
+            for i in range(100):
+                t = (2 * math.pi / 100) * i
+                x = math.cos(math.pi * 5 / 12) * math.cos(t)
+                y = math.cos(math.pi * 5 / 12) * math.sin(t)
+                z = math.sin(math.pi * 5 / 12)
+                print(x, y, z, math.sqrt(x**2 + y**2 + z**2))
+                self.Goto_N_time_vector(x, y, z, 8)
+                time.sleep(1/100)
+        self.Goto_time_vector(0, 0, 1, 8)
+
+class PIDcontroller:
+    def __init__(self, kp, ki, kd, alpha, beta, max_theta, conversion="linear", recorder=None, record:bool=False): 
+
+        self.kp, self.ki, self.kd = kp, ki, kd
+        self.alpha = alpha  #Exponential Filter: α⋅x + (1-α)⋅x_last
+        self.beta = beta  #Coefficient for converting magnitude, either βx or tanh(βx)
+        self.max_theta = max_theta
+        self.recorder = recorder
+        self.record = record
+        
+        if conversion == "linear":
+            self.magnitude_convert = 1 #Linear
+        elif conversion == "tanh":
+            self.magnitude_convert = 0 #Tanh
+        else:
+            self.magnitude_convert = -1
+ 
+        self.prev_out_x = 0.0
+        self.prev_err_x = 0.0  
+        self.prev_out_y = 0.0
+        self.prev_err_y = 0.0
+
+        self.sum_err_x = 0.0  #Integral
+        self.sum_err_y = 0.0  #Integral
+        
+        self.last_time = None
+
+    def pid(self, target, current):
+
+        #dt
+        new_time = time.perf_counter()
+        dt = new_time - self.last_time if self.last_time is not None else 0.001
+
+        #errors
+        err_x0 = current[0] - target[0]
+        err_y0 = current[1] - target[1]
+
+        # Rottate errors by 90 degrees to align with robot's coordinate system
+        err_x = - err_y0
+        err_y = err_x0
+
+        self.sum_err_x += err_x * dt
+        self.sum_err_y += err_y * dt
+        d_err_x = (err_x - self.prev_err_x) / dt if dt > 0 else 0
+        d_err_y = (err_y - self.prev_err_y) / dt if dt > 0 else 0
+
+        #output
+        pid_x = self.kp * err_x + self.ki * self.sum_err_x + self.kd * d_err_x
+        pid_y = self.kp * err_y + self.ki * self.sum_err_y + self.kd * d_err_y
+        filtered_x = self.alpha * pid_x + (1 - self.alpha) * self.prev_out_x
+        filtered_y = self.alpha * pid_y + (1 - self.alpha) * self.prev_out_y
+        
+        #Convert to spherical coordinates
+        phi = math.degrees(math.atan2(filtered_y, filtered_x))
+        phi = phi + 180
+        if phi < 0:
+            phi += 360
+        r = math.sqrt(filtered_x**2 + filtered_y**2)
+        if self.magnitude_convert == 1:
+            theta = min(max(0, self.beta*r), self.max_theta)
+        else:
+            theta = max(0, 15*math.tanh(self.beta*r))
+
+
+        self.prev_err_x = err_x
+        self.prev_err_y = err_y
+        self.prev_out_x = filtered_x
+        self.prev_out_y = filtered_y
+        self.last_time = new_time
+
+        data = {
+            "dt": dt,
+            "target": target,
+            "current": current,
+            "err_abs": math.sqrt(err_x**2 + err_y**2),
+            "err": (err_x, err_y),
+            "err_i": (self.sum_err_x, self.sum_err_y),
+            "err_d": (d_err_x, d_err_y),
+            "pid": (pid_x, pid_y),
+            "pid_f": (filtered_x, filtered_y),
+            "theta": theta,
+            "phi": phi
+        }
+        if self.record and self.recorder is not None:
+            self.recorder.record(data)
+
+        return theta, phi, data
+
+class RobotKinematics:
+
+    def __init__(self, lp=7.125, l1=6.20, l2=4.50, lb=4.00, invert=False):
+
+        logger.debug("RobotKinematics.__init__ - Initializing with parameters: lp=%s, l1=%s, l2=%s, lb=%s, invert=%s", lp, l1, l2, lb, invert)
+
+        self.lp = lp    #Radius of Top
+        self.l1 = l1    #Top Arm
+        self.l2 = l2    #Bottom Arm
+        self.lb = lb    #Radius of Bottom
+        self.invert = invert    #Whether the arm stays inward or outward
+
+        self.maxh = self.compute_maxh() - 0.2    #maximum height that the Top plane should be 
+        self.minh = self.compute_minh() + 0.45
+        self.p = [0.0,0.0,self.maxh]    #Center of the Top plane
+        self.maxtheta = 10
+        self.max_theta((self.maxh + self.minh)/2)
+        self.theta_ubound = self.maxtheta
+
+        #Top Nodes
+        self.A1 = [0,0,0] 
+        self.A2 = [0,0,0]
+        self.A3 = [0,0,0]
+
+        #Bottom Nodes
+        self.B1 = [0,0,0]
+        self.B2 = [0,0,0]
+        self.B3 = [0,0,0]
+
+        #Middle Nodes
+        self.C1 = [0.0, 0.0, 0.0]
+        self.C2 = [0.0, 0.0, 0.0]
+        self.C3 = [0.0, 0.0, 0.0]
+
+
+        self.theta1 = 0
+        self.theta2 = 0
+        self.theta3 = 0
+
+    def compute_maxh(self):
+        return math.sqrt(((self.l1 + self.l2) ** 2) - ((self.lp - self.lb) ** 2))
+
+    def compute_minh(self):
+        if self.l1 > self.l2:
+            return math.sqrt((self.l1 ** 2) - ((self.lb + self.l2 - self.lp) ** 2))
+        elif self.l2 > self.l1:
+            return math.sqrt(((self.l2 - self.l1) ** 2) - ((self.lp - self.lb) ** 2))
+        else:
+            return 0
+    
+    def solve_top(self, a, b, c, h): #Orientation vector n: [a:x, b:y, c:z], h: height
+        
+        if not self.invert:
+            #A1, A2, A3 are ball-joint coordinates, A2 is the vertex on plane y=0
+            self.A1 = [ -(self.lp*c) / (math.sqrt(4*c**2 + (a - math.sqrt(3)*b)**2)),
+                (math.sqrt(3)*self.lp*c) / (math.sqrt(4*c**2 + (a - math.sqrt(3)*b)**2)),
+                h + ((a - math.sqrt(3)*b)*self.lp) / (math.sqrt(4*c**2 + (a - math.sqrt(3)*b)**2))]
+            
+            self.A2 = [ (self.lp*c) / (math.sqrt(c**2 + a**2)),
+                    0,
+                        h - ((self.lp*a) / (math.sqrt(c**2 + a**2)))]
+            
+            self.A3 = [ -(self.lp*c) / (math.sqrt(4*c**2 + (a + math.sqrt(3)*b)**2)),
+                -(math.sqrt(3)*self.lp*c) / (math.sqrt(4*c**2 + (a + math.sqrt(3)*b)**2)),
+                h + ((a + math.sqrt(3)*b)*self.lp) / (math.sqrt(4*c**2 + (a + math.sqrt(3)*b)**2))]
+        else:
+            self.A1 = [ -(self.lp*c) / (math.sqrt(4*c**2 + (a - math.sqrt(3)*b)**2)),
+                (math.sqrt(3)*self.lp*c) / (math.sqrt(4*c**2 + (a - math.sqrt(3)*b)**2)),
+                h + ((a - math.sqrt(3)*b)*self.lp) / (math.sqrt(4*c**2 + (a - math.sqrt(3)*b)**2))]
+            
+            self.A2 = [ (self.lp*c) / (math.sqrt(c**2 + a**2)),
+                    0,
+                        h - ((self.lp*a) / (math.sqrt(c**2 + a**2)))]
+            
+            self.A3 = [ -(self.lp*c) / (math.sqrt(4*c**2 + (a + math.sqrt(3)*b)**2)),
+                -(math.sqrt(3)*self.lp*c) / (math.sqrt(4*c**2 + (a + math.sqrt(3)*b)**2)),
+                h + ((a + math.sqrt(3)*b)*self.lp) / (math.sqrt(4*c**2 + (a + math.sqrt(3)*b)**2))]
+
+
+    def solve_middle(self):
+
+
+        a11, a12, a13 = map(float, self.A1)
+        a21, a22, a23 = map(float, self.A2)
+        a31, a32, a33 = map(float, self.A3)
+
+
+        p1 = (-a11 + math.sqrt(3)*a12 - 2*self.lb) / a13
+        q1 = (a11**2 + a12**2 + a13**2 + self.l2**2 - self.l1**2 - self.lb**2) / (2*a13)
+        r1 = p1**2 + 4
+        s1 = 2*p1*q1 + 4*self.lb
+        t1 = q1**2 + self.lb**2 - self.l2**2
+
+        p2 = (self.lb - a21) / a23
+        q2 = (a21**2 + a23**2 - self.lb**2 + self.l2**2 - self.l1**2) / (2*a23)
+        r2 = p2**2 + 1
+        s2 = 2*(p2*q2 - self.lb)
+        t2 = q2**2 - self.l2**2 + self.lb**2
+
+        p3 = (-a31 - math.sqrt(3)*a32 - 2*self.lb) / a33
+        q3 = (a31**2 + a32**2 + a33**2 + self.l2**2 - self.l1**2 - self.lb**2) / (2*a33)
+        r3 = p3**2 + 4
+        s3 = 2*p3*q3 + 4*self.lb
+        t3 = q3**2 + self.lb**2 - self.l2**2
+
+        if not self.invert:
+
+            c11 = (-s1 - math.sqrt(s1**2 - 4*r1*t1)) / (2*r1)
+            c12 = -math.sqrt(3) * c11
+            c13 = math.sqrt(self.l2**2 - 4*(c11**2) - 4*self.lb*c11 - self.lb**2)
+
+            self.C1 = [c11, c12, c13]
+
+            c21 = (-s2 + math.sqrt(s2**2 - 4*r2*t2)) / (2*r2)
+            c22 = 0
+            c23 = math.sqrt(self.l2**2 - (c21 - self.lb)**2)
+
+            self.C2 = [c21, c22, c23]
+
+            c31 = (-s3 - math.sqrt(s3**2 - 4*r3*t3)) / (2*r3)
+            c32 =  math.sqrt(3) * c31
+            c33 = math.sqrt(self.l2**2 - 4*(c31**2) - 4*self.lb*c31 - self.lb**2)
+
+            self.C3 = [c31, c32, c33]
+
+        else:
+
+            c11 = (-s1 - math.sqrt(s1**2 - 4*r1*t1)) / (2*r1)
+            c12 = -math.sqrt(3) * c11
+            c13 = math.sqrt(self.l2**2 - 4*(c11**2) - 4*self.lb*c11 - self.lb**2)
+
+            self.C1 = [c11, c12, -c13]
+
+            c21 = (-s2 + math.sqrt(s2**2 - 4*r2*t2)) / (2*r2)
+            c22 = 0
+            c23 = math.sqrt(self.l2**2 - (c21 - self.lb)**2)
+
+            self.C2 = [c21, c22, -c23]
+
+            c31 = (-s3 - math.sqrt(s3**2 - 4*r3*t3)) / (2*r3)
+            c32 = math.sqrt(3) * c31
+            c33 = math.sqrt(self.l2**2 - 4*(c31**2) - 4*self.lb*c31 - self.lb**2)
+
+            self.C3 = [c31, c32, -c33]
+
+    def solve_inverse_kinematics_vector(self, a, b, c, h):
+
+        self.B1 = [-0.5*self.lb, math.sqrt(3)*0.5*self.lb,0]
+        self.B2 = [self.lb,0,0]
+        self.B3 = [-0.5*self.lb, -1*math.sqrt(3)*0.5*self.lb,0]
+
+        self.solve_top(a, b, c, h)
+        self.solve_middle()
+
+        self.theta1 = math.pi/2 - math.atan2(math.sqrt(self.C1[0]**2 + self.C1[1]**2) - self.lb, self.C1[2])
+        self.theta2 = math.atan2(self.C2[2], self.C2[0] - self.lb)
+        self.theta3 = math.pi/2 - math.atan2(math.sqrt(self.C3[0]**2 + self.C3[1]**2) - self.lb, self.C3[2])
+
+    def solve_inverse_kinematics_spherical(self, theta, phi, h): #psi = azimuthal angle, theta = polar angle
+
+        #conversion
+        self.max_theta(h)
+
+        theta = min(theta, self.maxtheta)
+
+        a = math.sin(math.radians(theta)) * math.cos(math.radians(phi))
+        b  =  math.sin(math.radians(theta)) * math.sin(math.radians(phi))
+        c = math.cos(math.radians(theta))
+        
+        try:
+            self.solve_inverse_kinematics_vector(a,b,c,h)
+        except Exception as e:
+            print(a,b,c,h, theta, phi)
+            pass
+
+
+    def max_theta(self, h, tol=1e-3):
+        theta_low, theta_high = 0.0, math.radians(20)
+        def valid(theta):
+            c = math.cos(theta)
+            for s in (1, -1):
+                a21 = self.lp * c
+                a23 = h - self.lp * (s * math.sin(theta))
+                try:
+                    p2 = (self.lb - a21) / a23
+                    q2 = (a21**2 + a23**2 - self.lb**2 + self.l2**2 - self.l1**2) / (2 * a23)
+                    r2 = p2**2 + 1
+                    s2 = 2 * (p2 * q2 - self.lb)
+                    t2 = q2**2 - self.l2**2 + self.lb**2
+                    disc = s2**2 - 4 * r2 * t2
+                    if disc < 0: return False
+                    c21 = (-s2 + math.sqrt(disc)) / (2 * r2)
+                    delta = self.l2**2 - (c21 - self.lb)**2
+                    if delta < 0: return False
+                    c23 = math.sqrt(delta)
+                    if abs(math.sqrt((a21-c21)**2 + (a23-c23)**2) - self.l1) > 1e-3: return False
+                    if abs(math.sqrt((self.lb-c21)**2 + c23**2) - self.l2) > 1e-3: return False
+                except:
+                    return False
+            return True
+        while theta_high - theta_low > tol:
+            theta_mid = (theta_low + theta_high) / 2
+            if valid(theta_mid): theta_low = theta_mid
+            else: theta_high = theta_mid
+
+        self.maxtheta = max(0, math.degrees(round(theta_low, 4)) - 0.5)
+        return self.maxtheta
 
 def on_connect(client, userdata, flags, reason_code, properties):
     """Handle MQTT connect

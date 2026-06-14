@@ -13,7 +13,10 @@ socketio = SocketIO(app)
 CORS(app)
 
 # Configure loggers
-logsPath = os.path.dirname(app.instance_path) + "/logs"
+HOMEDIR = os.path.join(os.environ.get("HOME", ""), "bb_robot_home")
+if not os.path.exists(HOMEDIR):
+    HOMEDIR = os.getcwd()
+logsPath = HOMEDIR + "/logs"
 os.makedirs(logsPath, exist_ok=True)
 logFile = logsPath + "/bb_robot.log"
 Path(logFile).touch(exist_ok=True)
