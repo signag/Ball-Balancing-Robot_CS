@@ -33,6 +33,10 @@
             99,
             81
         ],
+        "target": [
+            99,
+            81
+        ],
         "detection_radius": 55,
         "format": "RGB888"
     }

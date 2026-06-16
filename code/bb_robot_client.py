@@ -74,6 +74,15 @@ def on_message(client, userdata, msg):
         logger.debug("Received PID recording data: %s", data["pid_recording"])
         pid_recording = data.get("pid_recording", {})
         socketio.emit("pid_recording_update", pid_recording)
+    if "status" in data:
+        status = data.get("status")
+    else:
+        status = "success"
+    if "message" in data:
+        message = data.get("message")
+    else:
+        message = ""
+    socketio.emit("message_update", {"status": status, "message": message})
 
 client.on_connect = on_connect
 client.on_message = on_message
@@ -143,6 +152,19 @@ def handle_calibrate(data):
     }
     client.publish("robot/request", json.dumps(request))
     logger.debug("Published calibrate request to MQTT: %s", request)
+
+@socketio.on("calibrate_cam")
+def handle_calibrate_cam(data):
+    request = {
+        "method": "calibrate_cam",
+        "params": {
+            "center": (data.get("center").get("x"), data.get("center").get("y")),
+            "target": (data.get("target").get("x"), data.get("target").get("y")),
+            "detection_radius": data.get("detection_radius")
+        }
+    }
+    client.publish("robot/request", json.dumps(request))
+    logger.debug("Published calibrate_cam request to MQTT: %s", request)
 
 @socketio.on("save_calibration")
 def handle_save_calibration():

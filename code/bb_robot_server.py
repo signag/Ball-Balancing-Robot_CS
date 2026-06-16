@@ -20,7 +20,6 @@ from adafruit_pca9685 import PCA9685
 from adafruit_servokit import ServoKit
 import math
 
-
 import logging
 #
 # Robot configuration
@@ -28,9 +27,9 @@ import logging
 HOMEDIR = os.getcwd()
 if not os.path.exists(os.path.join(HOMEDIR, "config")):
     HOMEDIR = os.path.join(os.environ.get("HOME", os.getcwd()), "bb_robot_home")
-CONFIG_DIR = HOMEDIR + "/config"
+CONFIG_DIR = os.path.join(HOMEDIR, "config")
 os.makedirs(CONFIG_DIR, exist_ok=True)
-DATA_DIR = HOMEDIR + "/data"
+DATA_DIR = os.path.join(HOMEDIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 ROBOT_CONFIG_FILE = "bb_robot_config.json"
 #
@@ -39,9 +38,9 @@ x, y = 100, 75
 #
 # Logging configuration
 #
-logsPath = HOMEDIR + "/logs"
+logsPath = os.path.join(HOMEDIR, "logs")
 os.makedirs(logsPath, exist_ok=True)
-logFile = logsPath + "/bb_robot.log"
+logFile = os.path.join(logsPath, "bb_robot.log")
 Path(logFile).touch(exist_ok=True)
 filehandler = logging.FileHandler(logFile)
 filehandler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s in %(name)s: %(message)s'))
@@ -130,6 +129,7 @@ class BallBalancingRobot:
             "resolution": (1640, 1232),
             "resolution_work": (200, 150),
             "center": (100, 75),
+            "target": (100, 75),
             "detection_radius": 55, 
             "format": "RGB888"
         }
@@ -218,6 +218,9 @@ class BallBalancingRobot:
                         ),
                         "center": tuple(
                             cam_parameters.get("center", self.cam_parameters["center"])
+                        ),
+                        "target": tuple(
+                            cam_parameters.get("target", self.cam_parameters["target"])
                         ),
                         "detection_radius": cam_parameters.get("detection_radius", self.cam_parameters["detection_radius"]),
                         "format": cam_parameters.get("format", self.cam_parameters["format"])
@@ -353,8 +356,10 @@ class BallBalancingRobot:
         time.sleep(0.5)
         self.set_orientation(0.0, 0.0, self.configuration["h_work"])
 
+        self.cam.calibrate(self.cam_parameters)
+
         #Initialize Ball Position
-        x, y = bb_robot.cam_parameters["center"]
+        x, y = bb_robot.cam_parameters["target"]
 
         response["status"] = "success"
         response["message"] = ""
@@ -420,6 +425,33 @@ class BallBalancingRobot:
 
         return response
 
+    def calibrate_cam(self, params, response) -> dict:
+        """Calibrate the robot's camera by setting the specified parameters.
+
+        Args:
+            params (dict): A dictionary containing the camera calibration parameters.
+            response (dict): A dictionary to be updated with the calibration result.
+
+        Returns:
+            dict: The updated response dictionary with calibration status and message.
+        """
+        logger.debug("BallBalancingRobot.calibrate_cam - params= %s", params)
+
+        center = params.get("center")
+        target = params.get("target")
+        detection_radius = params.get("detection_radius")
+
+        response["status"] = "success"
+        response["message"] = f"Calibrated camera with center {center}, target {target}, and detection radius {detection_radius}"
+
+        self.cam_parameters["center"] = center
+        self.cam_parameters["target"] = target
+        self.cam_parameters["detection_radius"] = detection_radius
+
+        self.cam.calibrate(self.cam_parameters)
+
+        return response
+
     def save_calibration(self, response) -> dict:
         """Save the current calibration parameters to the configuration file.
 
@@ -429,8 +461,8 @@ class BallBalancingRobot:
         Returns:
             dict: The updated response dictionary with save status and message.
         """
-        logger.debug("Saving calibration parameters to file")
-        config_path = Path(DATA_DIR) / ROBOT_CONFIG_FILE
+        config_path = Path(CONFIG_DIR) / ROBOT_CONFIG_FILE
+        logger.debug("Saving calibration parameters to file %s", config_path)
         try:
             if config_path.is_file():
                 with open(config_path, "r") as f:
@@ -439,11 +471,12 @@ class BallBalancingRobot:
                 robot_config = {}
 
             robot_config["calibration"] = self.calibration
+            robot_config["cam_parameters"] = self.cam_parameters
 
             with open(config_path, "w") as f:
                 json.dump(robot_config, f, indent=4)
 
-            logger.debug("Calibration parameters saved successfully")
+            logger.debug("Calibration parameters saved successfully: %s", robot_config)
             response["status"] = "success"
             response["message"] = "Calibration parameters saved successfully"
         except Exception as e:
@@ -480,7 +513,7 @@ class BallBalancingRobot:
         )
 
         logger.debug("Saving PID parameters to file")
-        config_path = Path(DATA_DIR) / ROBOT_CONFIG_FILE
+        config_path = Path(CONFIG_DIR) / ROBOT_CONFIG_FILE
         try:
             if config_path.is_file():
                 with open(config_path, "r") as f:
@@ -581,7 +614,10 @@ class BallBalancingRobot:
             "theta_max": self.theta_max,
             "theta1_offset": self.calibration["theta1_offset"],
             "theta2_offset": self.calibration["theta2_offset"],
-            "theta3_offset": self.calibration["theta3_offset"]
+            "theta3_offset": self.calibration["theta3_offset"],
+            "center": self.cam_parameters["center"],
+            "target": self.cam_parameters["target"],
+            "detection_radius": self.cam_parameters["detection_radius"]
         }
         return result
 
@@ -612,6 +648,7 @@ class Camera:
         logger.debug("Camera.__init__ - Initializing camera with camera_parameters: %s", camera_parameters)
         self.camera_parameters = camera_parameters
         self.center = camera_parameters["center"]
+        self.target = camera_parameters["target"]
         self.detection_radius = camera_parameters["detection_radius"]
         self.picam2 = Picamera2()
         config = self.picam2.create_preview_configuration(
@@ -631,37 +668,42 @@ class Camera:
         self.gray_threshold = 60
 
         self.queue = deque(maxlen=16)
-        self.queue.append(self.camera_parameters["center"])  
+        self.queue.append(self.camera_parameters["target"])  
 
         self.picam2.start()
+
+    def calibrate(self, params):
+        logger.debug("Camera.calibrate - params= %s", params)
+        center = params.get("center")
+        target = params.get("target")
+        detection_radius = params.get("detection_radius")
+
+        self.camera_parameters["center"] = center
+        self.camera_parameters["target"] = target
+        self.camera_parameters["detection_radius"] = detection_radius
+        self.center = center
+        self.target = target
+        self.detection_radius = detection_radius
 
     def take_picture(self):
         image = self.picam2.capture_array()
         frame_resized = cv2.resize(image, self.camera_parameters["resolution_work"])
         return frame_resized
 
-    def display(self, image, window_name="Camera Output"):
-        cv2.imshow(window_name, image)
-        cv2.waitKey(1) 
-
-    def display_draw(self, image, center, window_name="Tracked Output"):
-        x, y = center
-        cv2.line(image, (x - 10, y), (x + 10, y), (0, 0, 255), 2)
-        cv2.line(image, (x, y - 10), (x, y + 10), (0, 0, 255), 2)
-        cv2.imshow(window_name, image)
-        cv2.waitKey(1) 
-
-    def draw_position(self, image, center, pos):
-        x0, y0 = center
+    def draw_position(self, image, pos):
+        x0, y0 = self.center
         cv2.line(image, (x0 - 10, y0), (x0 + 10, y0), (0, 255, 0), 2)
         cv2.line(image, (x0, y0 - 10), (x0, y0 + 10), (0, 255, 0), 2)
         cv2.circle(
             image,
-            center=center,
-            radius=self.camera_parameters["detection_radius"],
+            center=self.center,
+            radius=self.detection_radius,
             color=(0, 255, 0),
             thickness=2
         )        
+        x0, y0 = self.target
+        cv2.line(image, (x0 - 10, y0), (x0 + 10, y0), (0, 255, 255), 2)
+        cv2.line(image, (x0, y0 - 10), (x0, y0 + 10), (0, 255, 255), 2)
 
         x, y = pos
         cv2.line(image, (x - 10, y), (x + 10, y), (0, 0, 255), 2)
@@ -750,7 +792,7 @@ class Camera:
                 valid_detections.append((area, (xd, yd)))
 
 
-        logger.debug("coordinate - Found %d valid detections from %d contours", len(valid_detections), len(contours))
+        # logger.debug("coordinate - Found %d valid detections from %d contours", len(valid_detections), len(contours))
         if valid_detections:
             best_center = max(valid_detections, key=lambda item: item[0])[1]  
             self.queue.append(best_center) 
@@ -1245,7 +1287,7 @@ def on_message(client, userdata, msg):
     params = data.get("params", {})
 
     response = {
-        "status": "invalid",
+        "status": "error",
         "received": data,
         "message": "Invalid method"
     }
@@ -1269,6 +1311,9 @@ def on_message(client, userdata, msg):
         response["state"] = bb_robot.state
     if method == "calibrate":
         response = bb_robot.calibrate(params, response)
+        response["state"] = bb_robot.state
+    if method == "calibrate_cam":
+        response = bb_robot.calibrate_cam(params, response)
         response["state"] = bb_robot.state
     if method == "save_calibration":
         response = bb_robot.save_calibration(response)
@@ -1334,7 +1379,7 @@ def capture(cam):
         frame = cam.take_picture()
         #with frame_lock:
         latest_frame = frame 
-        logger.debug("capture - Captured new frame")
+        # logger.debug("capture - Captured new frame")
         #with thread_lock:
         if shutdown == True:
             running = False
@@ -1348,7 +1393,7 @@ def process(rob:BallBalancingRobot):
     cam = rob.cam
     hz = 50
     global latest_frame, latest_image, x, y
-    x_t, y_t = rob.cam_parameters["center"]
+    x_t, y_t = rob.cam_parameters["target"]
     running = True
     while running == True:
         loop_start = time.perf_counter()
@@ -1356,7 +1401,7 @@ def process(rob:BallBalancingRobot):
         if latest_frame is None:
             continue 
         frame_copy = latest_frame.copy()
-        logger.debug("process - Copied latest frame")
+        # logger.debug("process - Copied latest frame")
 
         with image_lock:
             latest_image = frame_copy.copy()
@@ -1364,12 +1409,12 @@ def process(rob:BallBalancingRobot):
                 x, y = cam.coordinate(frame_copy, latest_image)
             else:
                 x, y = cam.coordinate(frame_copy)
-            logger.debug("process - Calculated coordinates: x=%s, y=%s", x, y)
-            latest_image = cam.draw_position(latest_image, (x_t, y_t), (x, y))
-            logger.debug("process - position drawn on image")
+            # logger.debug("process - Calculated coordinates: x=%s, y=%s", x, y)
+            latest_image = cam.draw_position(latest_image, (x, y))
+            # logger.debug("process - position drawn on image")
         if rob.mode == "auto":
             update_robot_pos(rob, x_t, y_t, x, y)
-            logger.debug("process - Updated robot position")
+            # logger.debug("process - Updated robot position")
         #with thread_lock:
         if shutdown == True:
             running = False
@@ -1399,10 +1444,11 @@ def simulate_pid(rob:BallBalancingRobot, response:dict) -> dict:
     global latest_frame
     with frame_lock:
         if latest_frame is None:
-            response["status"] = "error: no frame available"
+            response["status"] = "error"
+            response["message"] = "No frame available"
             return response
         frame_copy = latest_frame.copy()
-    x_t, y_t = rob.cam_parameters["center"]
+    x_t, y_t = rob.cam_parameters["target"]
     x, y = rob.cam.coordinate(frame_copy)
     theta, phi, data = rob.pid.pid((x_t, y_t), (x, y))
     response["status"] = "success"
@@ -1421,7 +1467,7 @@ if __name__ == "__main__":
     bb_robot = BallBalancingRobot()
 
     #Initialize Ball Position
-    x, y = bb_robot.cam_parameters["center"]
+    x, y = bb_robot.cam_parameters["target"]
 
     # Start threads
     threading.Thread(target=capture, args=(bb_robot.cam,), daemon=True).start()
