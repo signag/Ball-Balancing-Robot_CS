@@ -4,6 +4,7 @@ test
 __pycache__/
 *.py[codz]
 *$py.class
+bb_robot_config.json
 
 # C extensions
 *.so
