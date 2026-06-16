@@ -8,7 +8,7 @@ Both, server (bb_robot_server.py) and client (bb_robot_client.py) can be run as 
 
 The solution is essentially based on the original code [Ball-Balancing-Robot](https://github.com/I-M-Robotics-Lab/Ball-Balancing-Robot), where code from ```controller.py```,  ```robotKinematics.py```, ```camera.py``` and ```PID.py``` were all integrated into the new ```bb_robot_server.py``` with a few architecture-related modifications.
 
-See [Demo Video](./docs/img/bb_robot_action.mp4).
+See [Demo Video](https://github.com/signag/Ball-Balancing-Robot_CS/discussions/1).
 
 ## Robot Setup
 
