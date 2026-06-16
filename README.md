@@ -8,6 +8,8 @@ Both, server (bb_robot_server.py) and client (bb_robot_client.py) can be run as 
 
 The solution is essentially based on the original code [Ball-Balancing-Robot](https://github.com/I-M-Robotics-Lab/Ball-Balancing-Robot), where code from ```controller.py```,  ```robotKinematics.py```, ```camera.py``` and ```PID.py``` were all integrated into the new ```bb_robot_server.py``` with a few architecture-related modifications.
 
+See [Demo Video](./docs/img/bb_robot_action.mp4).
+
 ## Robot Setup
 
 ### Camera
@@ -22,6 +24,12 @@ It is essential that servos and camera are correctly aligned
 
 You can verify correctnes of servo numbers by using the calibration function.
 
+## Installation
+
+See [Installation of Ball-Balancing-Robot_CS](docs/installation.md)
+
+Connect to the client from any browser with     
+```http://<server_name>:5000```
 
 ## Usage
 

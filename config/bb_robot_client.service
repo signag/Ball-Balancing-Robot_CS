@@ -3,10 +3,9 @@ Description=bb_robot_client
 After=network.target
 
 [Service]
-User=<your_username>
-ExecStart=%h/prg/my_ball_balancing_robot/.venv/bin/python code/bb_robot_client.py
-Environment="PATH=%h/prg/my_ball_balancing_robot/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-WorkingDirectory=%h/prg/my_ball_balancing_robot
+ExecStart=/home/<your_username>/prg/Ball-Balancing-Robot_CS/.venv/bin/python code/bb_robot_client.py
+Environment="PATH=/home/<your_username>/prg/Ball-Balancing-Robot_CS/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+WorkingDirectory=/home/<your_username>/prg/Ball-Balancing-Robot_CS
 StandardOutput=inherit
 StandardError=inherit
 Restart=always
