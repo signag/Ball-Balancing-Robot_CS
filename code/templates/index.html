@@ -158,13 +158,13 @@
         <div class="control-row">
           <label>θ offs.:</label>
           <span>(</span> 
-          <input type="number" id="robot_theta1_offset_input" min="0" max="90" step="0.01" value="0"
+          <input type="number" id="robot_theta1_offset_input" min="-90" max="90" step="0.1" value="0"
             onchange="calib_s1(this.value)">
           <span>,</span> 
-          <input type="number" id="robot_theta2_offset_input" min="0" max="90" step="0.01" value="0"
+          <input type="number" id="robot_theta2_offset_input" min="-90" max="90" step="0.1" value="0"
             onchange="calib_s2(this.value)">
           <span>,</span> 
-          <input type="number" id="robot_theta3_offset_input" min="0" max="90" step="0.01" value="0"
+          <input type="number" id="robot_theta3_offset_input" min="-90" max="90" step="0.1" value="0"
             onchange="calib_s3(this.value)">
           <span>)</span> 
         </div>
@@ -516,12 +516,12 @@
       document.getElementById("label_theta1").textContent = data.theta1.toFixed(2);
       document.getElementById("label_theta2").textContent = data.theta2.toFixed(2);
       document.getElementById("label_theta3").textContent = data.theta3.toFixed(2);
-      document.getElementById("robot_theta1_offset").textContent = data.theta1_offset.toFixed(2);
-      document.getElementById("robot_theta2_offset").textContent = data.theta2_offset.toFixed(2);
-      document.getElementById("robot_theta3_offset").textContent = data.theta3_offset.toFixed(2);
-      document.getElementById("robot_theta1_offset_input").value = data.theta1_offset.toFixed(2);
-      document.getElementById("robot_theta2_offset_input").value = data.theta2_offset.toFixed(2);
-      document.getElementById("robot_theta3_offset_input").value = data.theta3_offset.toFixed(2);
+      document.getElementById("robot_theta1_offset").textContent = data.theta1_offset.toFixed(1);
+      document.getElementById("robot_theta2_offset").textContent = data.theta2_offset.toFixed(1);
+      document.getElementById("robot_theta3_offset").textContent = data.theta3_offset.toFixed(1);
+      document.getElementById("robot_theta1_offset_input").value = data.theta1_offset.toFixed(1);
+      document.getElementById("robot_theta2_offset_input").value = data.theta2_offset.toFixed(1);
+      document.getElementById("robot_theta3_offset_input").value = data.theta3_offset.toFixed(1);
       document.getElementById("robot_center_x").textContent = data.center[0].toFixed();
       document.getElementById("robot_center_y").textContent = data.center[1].toFixed();
       document.getElementById("robot_center_x_input").value = data.center[0].toFixed();

@@ -10,7 +10,25 @@ The solution is essentially based on the original code [Ball-Balancing-Robot](ht
 
 See [Demo Video](https://github.com/signag/Ball-Balancing-Robot_CS/discussions/1).
 
+## 3D Print Model
+
+Some parts of the original model have been modified.     
+See [Modified Parts](./docs/model.md).    
+There, you will also find an updated parts- and shopping list
+
 ## Robot Setup
+
+### Mounting the Robot Arms
+
+Before fixing the robot arms on the servos, it is necessary to bring these into a definite position.
+
+After wiring the servos and setting up the Raspberry Pi, [install the software](./docs/installation.md).
+
+Then connect to the server from a browser (See [Usage](#usage)).
+
+With θ and *φ* set to *0*, move the height (*h*) to the left which corresponds to the minimum height of the robot.
+
+Then mount the robot arms so that the lower arms point slightly upwards with the screws connecting lower and upper arm being slightly below the plate holding the servos (base).
 
 ### Camera
 
@@ -28,7 +46,7 @@ You can verify correctnes of servo numbers by using the calibration function.
 
 See [Installation of Ball-Balancing-Robot_CS](docs/installation.md)
 
-Connect to the client from any browser with     
+Connect to the client from any browser within the same network with     
 ```http://<server_name>:5000```
 
 ## Usage
@@ -38,19 +56,25 @@ Connect to the client from any browser with
 ### Configuration File
 
 The server initializes the robot from a configuration file ```bb_robot_config.json```.    
-This file will be located in a ```config``` subdirectory of the active work directory, if this ecists.     
+This file will be located in a ```config``` subdirectory of the active work directory, if this exists.     
 If not, a ```~/bb_robot_home``` directory with a ```config``` subdirectory will be created at server start.
 
 If a configuration file exists, contained data will be used for robot initialization.    
 If a configuration file does not exist at server start, it will be created with default values.
 
+Example:    
+![robot_config_example](./docs/img/robot_config_example.jpg)
+
 #### Structural Parameters
 
-If the structural parameters for your robot differ from the defaults, you need to update these directly in the configuration file.
+If the structural parameters (```"configuration"```) for your robot differ from the defaults, you need to update these directly in the configuration file.    
+Especially, the length l1 of the upper arm should be verified.
+
+![robot_struct](./docs/img/robot_struct_par.jpg)
 
 #### Calibration Parameters
 
-Calibration parameters and some of the camera parameters (center, target, detection radius) will be updated in the file when calibration is saved.
+Calibration parameters (```"calibration"```) and some of the camera parameters (center, target, detection_radius) will be updated in the file when calibration is saved.
 
 #### PID Parameters
 
@@ -102,3 +126,8 @@ As input for training a Neural Network, PID results can be recorded by activatin
 The number of records recorded so far is updated when the browser window is refreshed.
 
 The resulting file is stored in the ```config``` folder.
+
+### Logging
+
+Logging is initially set to ```ERROR``` logging.     
+A file handler is specified with the log file being located in the ```config``` folder.

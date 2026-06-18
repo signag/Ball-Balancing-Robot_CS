@@ -49,7 +49,7 @@ streamhandler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s in %(n
 
 logger = logging.getLogger("bb_robot_server")
 logger.addHandler(streamhandler)
-# logger.addHandler(filehandler)
+logger.addHandler(filehandler)
 logger.setLevel(logging.ERROR)
 
 #
@@ -106,10 +106,10 @@ class BallBalancingRobot:
         self.mode = "manual"
         self.show_contours = False
         self.configuration = {
-            "LP": 7.14,
-            "L1": 7.50,
+            "LP": 7.13,
+            "L1": 7.20,
             "L2": 4.50,
-            "LB": 5.56,
+            "LB": 4.00,
             "INVERT": False,
             "h_work": 9.53
         }
